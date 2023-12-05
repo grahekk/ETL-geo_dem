@@ -1,0 +1,90 @@
+# config.yaml
+canada_dem_dir: "/mnt/volume-nbg1-1/shared/nikola/Canada_DEM/"
+canada_dem_url: "https://ftp.maps.canada.ca/pub/nrcan_rncan/elevation/cdem_mnec/"
+canada_dem_vrt: "/mnt/volume-nbg1-1/shared/nikola/canada_dem.vrt"
+canada_dem_dir_zip: "/mnt/volume-nbg1-1/shared/nikola/Canada_DEM/zip"
+canada_dem_dir_unzip: "/mnt/volume-nbg1-1/shared/nikola/Canada_DEM/unzip/"
+
+canada_dem_WMS_dir: "/mnt/volume-nbg1-1/shared/nikola/Canada_DEM_WMS/"
+canada_dem_WMS_vrt: "/mnt/volume-nbg1-1/shared/nikola/canada_dem_WMS.vrt"
+canada_dem_WMS_url: "http://maps.geogratis.gc.ca/wms/elevation_en?service=WMS&version=1.3.0&request=GetSchemaExtension"
+canada_dem_wms_layer_name: "cdem.color-shaded-relief"
+
+canada_grid_url: 'https://ftp.maps.canada.ca/pub/nrcan_rncan/vector/index/nts_snrc.zip'
+canada_territory: '/mnt/volume-nbg1-1/shared/nikola/Canada_DEM/canada_tiles_boundaries/prov_territo.shp'
+
+usgs_dem_dir: "/mnt/volume-nbg1-1/shared/nikola/USGS_DEM_10m"
+usgs_dem_urls: "/home/nikola/4_north_america/USGS_dem_urls.txt"
+usa_dem_vrt: "/mnt/volume-nbg1-1/shared/nikola/usa_dem.vrt"
+
+usgs_dem_boundary: "4_north_america/data/USA_dataset_extent_OT.012021.4269.1.kml"
+
+nasa_global_dem_dir: "/mnt/volume-nbg1-1/shared/nikola/NASA_DEM"
+nasa_global_dem_vrt: "/mnt/volume-nbg1-1/shared/nikola/NASA_global_dem_vrt/global_dem.vrt"
+nasa_global_dem_vrt_dir: "/mnt/volume-nbg1-1/shared/nikola/NASA_global_dem_vrt"
+
+US_soil_url: "https://websoilsurvey.sc.egov.usda.gov/DSD/Download/Cache/STATSGO2/wss_gsmsoil_US_[2016-10-13].zip"
+US_soil_dir: '/mnt/volume-nbg1-1/shared/nikola/North_america_soils/'
+canada_soil_url: "https://agriculture.canada.ca/atlas/data_donnees/soilLandscapesOfCanada3_2/data_donnees/fgdb/soil_landscapes_of_canada_v3r2_gdb.zip"
+canada_soil_dir: '/mnt/volume-nbg1-1/shared/nikola/North_america_soils/'
+
+cec_lc_north_america_url: 'http://www.cec.org/files/atlas_layers/1_terrestrial_ecosystems/1_01_0_land_cover_2020_30m/land_cover_2020_30m_tif.zip'
+cec_lc_north_america_dir: "/mnt/volume-nbg1-1/shared/nikola/cec_land_cover_north_america/"
+cec_lc_north_america_tif: "/mnt/volume-nbg1-1/shared/nikola/cec_land_cover_north_america/land_cover_2020_30m_tif/NA_NALCMS_landcover_2020_30m/data/NA_NALCMS_landcover_2020_30m.tif"
+
+country_boundaries:  "/mnt/volume-nbg1-1/shared/nikola/country_boundaries.shp"
+esa_world_cover_grid: "https://esa-worldcover.s3.eu-central-1.amazonaws.com/esa_worldcover_grid_composites.fgb"
+esa_world_cover_url: "s3://esa-worldcover/v200/2021/macrotiles/"
+esa_world_cover_dir: "/mnt/volume-nbg1-1/shared/nikola/ESA_world_cover"
+esa_world_cover_vrt: "/mnt/volume-nbg1-1/shared/nikola/ESA_world_cover.vrt"
+
+esa_global_dem_grid_url: "https://spacedata.copernicus.eu/documents/20123/122407/GEO1988-CopernicusDEM-RP-002_GridFile_I4.0_ESA.zip/590bb3da-1123-042b-d4d3-021549aabb17?t=1674484982606"
+esa_global_dem_grid_dir: "/mnt/volume-nbg1-1/shared/nikola/ESA_global_dem_grid"
+esa_global_dem_grid_file: "/mnt/volume-nbg1-1/shared/nikola/ESA_global_dem_grid/GEO1988-CopernicusDEM-RP-002_GridFile_I4.0_ESA.shp/GEO1988-CopernicusDEM-RP-002_GridFile_I4.0_ESA.shp"
+esa_global_dem_grid_table: "esa_global_dem_grid"
+
+esa_global_dem_90_dir: "/mnt/volume-nbg1-1/shared/nikola/ESA_global_dem_90m"
+esa_global_dem_90_xml: "https://prism-dem-open.copernicus.eu/pd-desk-open-access/publicDemURLs/COP-DEM_GLO-90-DGED__2021_1"
+esa_global_dem_90_urls: "/home/nikola/4_north_america/data/ESA_global_dem_90_urls.txt"
+esa_global_dem_90_vrt: "/mnt/volume-nbg1-1/shared/nikola/ESA_global_dem_90m.vrt"
+
+esa_global_dem_30_dir: "/mnt/volume-nbg1-1/shared/nikola/ESA_global_dem_30m"
+esa_global_dem_30_xml: "https://prism-dem-open.copernicus.eu/pd-desk-open-access/publicDemURLs/COP-DEM_GLO-30-DGED__2021_1"
+esa_global_dem_30_urls: "/home/nikola/4_north_america/data/ESA_global_dem_30_urls.txt"
+esa_global_dem_30_vrt: "/mnt/volume-nbg1-1/shared/nikola/ESA_global_dem_30m.vrt"
+
+esa_na_dem_90_vrt: "/mnt/volume-nbg1-1/shared/nikola/ESA_NA_dem_90m.vrt"
+esa_usa_dem_90_vrt: "/mnt/volume-nbg1-1/shared/nikola/ESA_usa_dem_90m.vrt"
+
+world_countries_boundaries_dir: "/mnt/volume-nbg1-1/shared/nikola/world_countries_boundaries"
+world_countries_boundaries_url: "https://github.com/wmgeolab/geoBoundaries/raw/main/releaseData/CGAZ/geoBoundariesCGAZ_ADM0.zip"
+world_countries_boundaries_file: "/mnt/volume-nbg1-1/shared/nikola/world_countries_boundaries/geoBoundariesCGAZ_ADM0.shp"
+world_countries_boundaries_table: "world_countries_boundaries"
+
+world_continents_boundaries_dir: "/mnt/volume-nbg1-1/shared/nikola/world_continents_boundaries"
+world_continents_boundaries_file: "/mnt/volume-nbg1-1/shared/nikola/world_continents_boundaries/world_continents_boundaries.geojson"
+world_continents_boundaries_url: "https://services.arcgis.com/P3ePLMYs2RVChkJx/arcgis/rest/services/World_Continents/FeatureServer/0/query?outFields=*&where=1%3D1&f=geojson"
+world_continents_boundaries_table: "world_continents_boundaries"
+
+europe_coastal_flood: "/mnt/volume-nbg1-1/shared/domagoj/Data_SEA_LEVEL_RISE/Europe_sea_level_rise_DEM_10m/Europe_sea_level_rise_DTM_epsg4326_rez_10m.gpkg"
+
+general_dir: "/mnt/volume-nbg1-1/shared/nikola"
+tmp_dir: "/mnt/volume-nbg1-1/shared/nikola/tmp"
+world_geomorphon: "/mnt/volume-nbg1-1/shared/nikola/world_geomorphon.tif"
+
+NA_geomorphon: "/mnt/volume-nbg1-1/shared/nikola/NA_geomorphon.tif"
+NA_geomorphon_tmp: "/mnt/volume-nbg1-1/shared/nikola/NA_geomorphon_tmp.tif"
+NA_geomorphon_dir: "/mnt/volume-nbg1-1/shared/nikola/NA_geomorphon_dir"
+
+NA_slope: "/mnt/volume-nbg1-1/shared/nikola/NA_slope.tif"
+NA_slope_tmp: "/mnt/volume-nbg1-1/shared/nikola/NA_slope.tif"
+
+NA_slope_rescaled: "/mnt/volume-nbg1-1/shared/nikola/NA_slope_rescaled.tif"
+NA_aspect: "/mnt/volume-nbg1-1/shared/nikola/NA_aspect.tif"
+NA_aspect_categorized: "/mnt/volume-nbg1-1/shared/nikola/NA_aspect_categorized.tif"
+NA_aspect_categorized_table: "na_aspect_categorized_90m"
+
+tree_cover_density_dir: "/mnt/volume-nbg1-1/shared/nikola/tree_cover_density"
+tree_cover_density_vrt: "/mnt/volume-nbg1-1/shared/nikola/tree_cover_density.vrt"
+
+log_file_dir: "/home/nikola/4_north_america/GeoDataPump/scripts/pipeline.log"

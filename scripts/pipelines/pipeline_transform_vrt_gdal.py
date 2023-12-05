@@ -15,10 +15,8 @@ from statistics import mean
 import settings
 config = settings.get_config()
 conn_parameters = settings.get_conn_parameters()
+from .model_data import get_geocellid
 
-#import python path from qgis so that gdal from osgeo can be loaded
-sys.path.append('/usr/lib/python3/dist-packages')
-from osgeo import gdal 
 
 
 def absolute_file_paths(directory:str, extension:str): # ensure absolute paths
@@ -71,6 +69,9 @@ def geocellid_by_continents(conn_parameters, continent = "North America"):
             Defaults to "esa_grid".
         continent (str, optional): The continent or country by which spatial data will be filtered.
             Defaults to "North America".
+    
+    Returns:
+        geocell_ids (list): list of strings
     """
     # Connect to the PostgreSQL database and fetch the geocell IDs
     with psycopg2.connect(**conn_parameters) as conn:
@@ -80,6 +81,7 @@ def geocellid_by_continents(conn_parameters, continent = "North America"):
     conn.close()
     geocell_ids = [row[0] for row in result] #convert list of tuples containing string to list of strings
     return geocell_ids
+
 
 def geocellid_by_country(conn_parameters, country = "United States"):
     """
@@ -121,11 +123,11 @@ def filter_by_geocellid(links, coc = "continent", continent = "North America", c
     if coc == "continent":     
         filter_list = geocellid_by_continents(conn_parameters, continent = continent)
     elif coc=="country":
-        filter_list = geocellid_by_country(conn_parameters, country = country)
+        filter_list = get_geocellid(country = country)
     
     for link in links:
         file_name = os.path.basename(link)
-            # match something like "N23_00_W123"
+        # match something like "N23_00_W123"
         geocell_id_match = re.search(r'_(S|N)(\d+)_00_(W|E)(\d+)', file_name)
         if geocell_id_match:
             lat_direction = geocell_id_match.group(1)
@@ -251,18 +253,19 @@ def convert_float32_to_int16(input_dir:str, convert_output_type="Int16"):
     print("Conversion and renaming completed.")
 
 
-def geofilter_paths_list(files_dir:str):
+def geofilter_paths_list(files_dir:str, coc = "continent"):
     """
     Filter and return a sorted list of file paths from a directory based on geocell IDs.
 
     Args:
         files_dir (str): The directory containing the files to filter.
+        coc (str): (coc - Continent or country) either "continent" or "country" - a switch whether to filter by continent or a country
 
     Returns:
         list: A sorted list of file paths filtered based on geocell IDs.
     """
     input_files = absolute_file_paths(files_dir, ".tif") # returns generator object
-    filtered_files = filter_by_geocellid(input_files, coc = "country", country = "United States")
+    filtered_files = filter_by_geocellid(input_files, coc = coc, country = "United States")
     files_list = sorted(list(filtered_files))
     return files_list
 
@@ -403,17 +406,59 @@ def gdal_build_vrt(files_list:list, output_vrt:str, resample_method = "bilinear"
         resample_method = "cubic, average"
     """
     assert resample_method in ["cubic", "average", "bilinear", "nearest"], "Invalid resample_method"
-
-    # input_files = absolute_file_paths(raster_files_dir, ".tif") # returns generator object
-    # files_list = sorted(list(input_files))
+    
+    #import python path from qgis so that gdal from osgeo can be loaded
+    sys.path.append('/usr/lib/python3/dist-packages')
+    from osgeo import gdal 
 
     start_time = time.time()
     vrt_options = gdal.BuildVRTOptions(resampleAlg=resample_method, addAlpha=True, hideNodata=False)
     my_vrt = gdal.BuildVRT(output_vrt, files_list, options=vrt_options)
     my_vrt = None
     fun_time = round(time.time()-start_time, 2)
-    return print(f"Gdal building vrt done for file: {output_vrt} in time: {datetime.timedelta(seconds=fun_time)}")
+    # return print(f"Gdal building vrt done for file: {output_vrt} in time: {datetime.timedelta(seconds=fun_time)}")
 
+
+def create_neighbour_vrt(file, output_folder):
+    """
+    Function takes a dem file, finds neighbouring tiles and then creates virtual raster.
+    Virtual raster contains given tile and 8 surounding tiles (9 tiles total)
+
+    Parameters:
+        file(str): central file for creating vrt
+        tmp_folder(str): temporal folder for storing this vrt
+    
+    Returns:
+        vrt containing 9 tiles
+    """
+    file_name = os.path.basename(file)
+    tile_folder = os.path.dirname(file)
+    # find file coords
+    # match something like "N23_00_W123"
+    geocell_id_match = re.search(r'_(S|N)(\d+)_00_(W|E)(\d+)', file_name)
+    if geocell_id_match:
+        lat_direction = geocell_id_match.group(1)
+        lat_value = int(geocell_id_match.group(2))
+        lon_direction = geocell_id_match.group(3)
+        lon_value = int(geocell_id_match.group(4))
+
+        input_tiles = []
+        # find neighbour files
+        for i in range(lon_value - 1, lon_value + 1):
+            for j in range(lat_value - 1, lat_value + 1):
+                # Construct the file name for each surrounding tile
+                tile_name = f'Copernicus_DSM_30_{lat_direction}{j:02d}_00_{lon_direction}{i:03d}_00_DEM.tif'
+                tile_path = os.path.join(tile_folder, tile_name)
+                if os.path.exists(tile_path):
+                    input_tiles.append(tile_path)
+                else:
+                    continue
+
+        # create vrt with gdal
+        vrt_path = os.path.join(output_folder, f'{file_name}.vrt')
+        gdal_build_vrt(input_tiles, vrt_path)
+        return vrt_path
+    
 
 def create_vrt_ovr_flow(input_raster_directory:str, output_vrt:str, vrt_chunks=1, use_prefix='.tif'):
     """

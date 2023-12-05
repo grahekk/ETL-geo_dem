@@ -25,6 +25,7 @@ schema = settings.get_schema()
 conn_parameters = settings.get_conn_parameters()
 data_folder_path = settings.get_data_path()
 
+# TODO: print progress wrapper
 
 def list_s3_bucket_files(bucket_url:str):
     """
@@ -110,25 +111,61 @@ def extract_links_from_xml(url, url_tag="url", save_output = True, output_file =
     else:
         print(f"Failed to retrieve links. Status code: {response.status_code}")
 
-def generate_tree_cover_density_urls(urls_file = "TCD_urls_global_30m.txt"):
-    """
-    Function iterates over range for North America and creates urls that hold Tree cover density (TCD) tiles to be downloaded.
-    """
-    tiles_list = []
-    for lat in range(10, 90, 10):
-        for lon in range(-180, -40, 10):
-            tile_url = f"https://storage.googleapis.com/earthenginepartners-hansen/GFC2015/Hansen_GFC2015_treecover2000_{lat}N_{abs(lon)}W.tif"
-            save_path = f"tile_{lat}N_{abs(lon)}W.tif"
 
-            # download_tile(tile_url, save_path)
-            print(f"Downloaded: {save_path}")
-            tiles_list.append(tile_url)
+def save_urls_to_file(urls, file_path):
+    with open(file_path, 'w') as file:
+        for url in urls:
+            file.write(f"{url}\n")
 
-    urls_file = os.path.join(data_folder_path, urls_file)
-    with open(urls_file, "w") as file:
-        file.write(tiles_list)
+def read_urls_from_file(file_path):
+    with open(file_path, 'r') as file:
+        return [line.strip() for line in file.readlines()]
+
+
+def download_tree_cover_density(urls_file = "TCD_urls_global_30m.txt", extent = "North America"):
+    """
+    Function iterates over range for North America, creates urls that hold Tree cover density (TCD) tiles to be downloaded and then downloads tiles.
+
+    Parameters:
+        urls_file(str): .txt file where urls are saved into
+    """
+    tree_cover_density_dir = config["tree_cover_density_dir"]
+    tile_urls = []
     
-    return print(f"Urls for tree cover density tiles saved into {urls_file}")
+    # Generate tile URLs within the bounding box of North America
+    if extent == "North America":
+        for lat in range(10, 90, 10):
+            for lon in range(40, 180, 10):
+                if lon < 100:
+                    lon = f"0{lon}"
+                tile_url = f"https://storage.googleapis.com/earthenginepartners-hansen/GFC2015/Hansen_GFC2015_treecover2000_{lat}N_{lon}W.tif"
+                tile_urls.append(tile_url)
+    
+    else:
+        raise ValueError("Invalid extent. Use 'North America'.")
+
+    # Save the tile URLs to a text file
+    urls_file = os.path.join(data_folder_path, urls_file)
+    save_urls_to_file(tile_urls, urls_file)
+    print(f"Urls for tree cover density tiles saved into {urls_file}")
+
+    os.makedirs(tree_cover_density_dir, exist_ok=True)
+
+    # Download tiles from the saved URLs
+    total_count = len(tile_urls)
+    for count, url in enumerate(tile_urls):
+        # print_progress()
+        file = download_data(url, tree_cover_density_dir, print_output=True)
+        print(f"Downloaded, {count}/{total_count}: {file}")
+
+    
+    # total_count = len(tile_urls)
+    # fun_times = []
+    # for count, link in enumerate(tile_urls):
+    #     download_args = [link, tree_cover_density_dir]
+    #     result, fun_times = print_progress(download_data, download_args, count, total_count, fun_times)
+    
+    return print(f"Downloading task done and saved into {tree_cover_density_dir}")
 
 
 # flows here

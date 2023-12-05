@@ -59,7 +59,9 @@ class ConfigurationParameters():
     """
     config = config
     data_directory_path = os.path.join(parent_directory, 'data/')
-
+    parent_directory = parent_directory
+    log_file_path = os.path.join(parent_directory, 'pipeline.log')
+    
 
 def get_conn_parameters():
     """
@@ -113,11 +115,22 @@ def get_config():
     """
     return ConfigurationParameters.config
 
+
 def get_data_path():
     """
-    Retreive path to the data fodler where temporary files are stashed
+    Retrieve path to the data folder where temporary files are stashed
 
     Returns:
         data_directory_path: variable that holds string to data folder
     """
     return ConfigurationParameters.data_directory_path
+
+
+def get_parent_dir_path():
+    """
+    Retrieve path to the parent folder where all files are stashed
+
+    Returns:
+        parent_directory(str): variable that holds string to parent folder
+    """
+    return ConfigurationParameters.parent_directory

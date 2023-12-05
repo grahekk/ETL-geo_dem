@@ -59,29 +59,29 @@ def download_data(url:str, output_dir, print_output = False, skip_existing_files
         filename (str): The local path where the file will be saved.
     """
     filename = os.path.join(output_dir, os.path.basename(url))
-
+    
     #skip if file exists
     if skip_existing_files==True:
         if os.path.exists(filename):
+            print(f"{filename} exists, skipping download")
             return filename
-    else:
-        try:
-            # Send an HTTP GET request to the URL
-            response = requests.get(url)
 
-            # Check if the request was successful (status code 200)
-            if response.status_code == 200:
-                # Open the file in binary write mode and write the content of the response
-                with open(filename, "wb") as file:
-                    file.write(response.content)
-                    
-                if print_output == True:
-                    print(f"File '{filename}' downloaded successfully.")
-            else:
-                print(f"Failed to download file. Status code: {response.status_code}")
-        except Exception as e:
-            print(f"An error occurred: {str(e)}")
-        return filename
+    try:
+        # Send an HTTP GET request to the URL
+        response = requests.get(url)
+        # Check if the request was successful (status code 200)
+        if response.status_code == 200:
+            # Open the file in binary write mode and write the content of the response
+            with open(filename, "wb") as file:
+                file.write(response.content)
+                
+            if print_output == True:
+                print(f"File '{filename}' downloaded successfully.")
+        else:
+            print(f"Failed to download file. Status code: {response.status_code}")
+    except Exception as e:
+        print(f"An error occurred: {str(e)}")
+    return filename
 
 
 def unzip_file(zip_filename:str, output_dir:str):

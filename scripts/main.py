@@ -32,8 +32,9 @@ def main():
     # pipeline_download_s3_global.download_ESA_worldcover_flow()
     # pipeline_download_s3_global.download_ESA_global_dem_90_flow()
     # pipeline_download_s3_global.download_ESA_global_dem_30_flow()
-    
-    # Add code for transformation and loading steps when ready.
+    # pipeline_flows.download_tree_cover_density_flow()
+
+    # Transform functions
     # pipeline_transform_vrt.usa_dem_vrt_ovr_flow()
     # pipeline_transform_vrt.canada_dem_vrt_ovr_flow()
     # pipeline_transform_vrt.canada_WMS_dem_vrt_ovr_flow()
@@ -41,9 +42,12 @@ def main():
     # pipeline_flows.transform_ESA_global_dem_90_vrt_flow()
     # pipeline_flows.transform_ESA_NA_dem_30_vrt_flow()
     # pipeline_flows.transform_ESA_NA_dem_90_vrt_flow()
+    # pipeline_flows.transform_esa_usa_dem_vrt_flow()
     # pipeline_flows.transform_ESA_world_cover_vrt_flow()
     # pipeline_flows.transform_aspect_flow()
-    pipeline_flows.transform_geomorphon_flow()
+    # pipeline_flows.transform_geomorphon_flow()
+    pipeline_flows.transform_geomorphon_chunky()
+    # pipeline_flows.transform_tree_cover_density_vrt_flow()
 
     # pipeline_flows.load_countries_boundaries_flow()
     # pipeline_flows.load_continents_boundaries_flow()
@@ -66,9 +70,10 @@ def main():
     # eu_slope = "/mnt/volume-nbg1-1/satellite/eu_slope/eu_slope_100m_3035.tif"
     # na_slope = config["NA_slope"]
     # na_aspect_categorized = config["NA_aspect_categorized"]
-    dem_90 = config["esa_global_dem_90_vrt"]
+    # dem_90 = config["esa_global_dem_90_vrt"]
     # esa_world_cover_vrt = config["esa_world_cover_vrt"]
-    # qgis_run_app.grapical_map_flow(esa_world_cover_vrt)
+    # graphical_file = config["tree_cover_density_vrt"]
+    # qgis_run_app.grapical_map_flow(graphical_file)
 
     # pipeline_flows.load_aspect_flow()
     # pipeline_flows.load_slope_flow()
