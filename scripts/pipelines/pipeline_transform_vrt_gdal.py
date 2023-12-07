@@ -17,6 +17,9 @@ config = settings.get_config()
 conn_parameters = settings.get_conn_parameters()
 from .model_data import get_geocellid
 
+#import python path from qgis so that gdal from osgeo can be loaded
+sys.path.append('/usr/lib/python3/dist-packages')
+from osgeo import gdal 
 
 
 def absolute_file_paths(directory:str, extension:str): # ensure absolute paths
@@ -398,6 +401,7 @@ def gdal_build_vrt(files_list:list, output_vrt:str, resample_method = "bilinear"
     This function constructs a Virtual Raster (VRT) dataset using GDAL tools to mosaic multiple raster files
     into a single virtual dataset. It uses the specified 'raster_files' path to locate the input raster files
     and 'output_vrt' to define the output VRT filename. You can also specify the resampling method.
+    Make sure to provide correct path to `osgeo` to import `gdal`.
 
     The VRT options include adding an alpha band and displaying nodata values.
 
@@ -406,10 +410,6 @@ def gdal_build_vrt(files_list:list, output_vrt:str, resample_method = "bilinear"
         resample_method = "cubic, average"
     """
     assert resample_method in ["cubic", "average", "bilinear", "nearest"], "Invalid resample_method"
-    
-    #import python path from qgis so that gdal from osgeo can be loaded
-    sys.path.append('/usr/lib/python3/dist-packages')
-    from osgeo import gdal 
 
     start_time = time.time()
     vrt_options = gdal.BuildVRTOptions(resampleAlg=resample_method, addAlpha=True, hideNodata=False)
@@ -417,6 +417,72 @@ def gdal_build_vrt(files_list:list, output_vrt:str, resample_method = "bilinear"
     my_vrt = None
     fun_time = round(time.time()-start_time, 2)
     # return print(f"Gdal building vrt done for file: {output_vrt} in time: {datetime.timedelta(seconds=fun_time)}")
+
+
+def gdal_clip(input_tif:str, output_tif:str, projWin = [-75.3, 5.5, -73.5, 3.7]):
+    """
+    Call GDAL translate utility to clip out tile by specified coords.
+
+    Parameters:
+        input_tif(str): a file to be clipped
+        output_tif(str): a file where clip is saved
+        projwin(str): dimensions for clipping the file
+    """
+    assert input_tif.endswith(".tif")
+
+    ds = gdal.Open(input_tif)
+    ds = gdal.Translate(output_tif, ds, projWin)
+    # close the dataset
+    ds = None
+
+def clip_tile_by_dimensions(input_tile_path, reference_tile_path, output_tile_dir):
+    """
+    Clips a raster using the dimensions of another raster tile.
+
+    Parameters:
+    - input_tile_path (str): Path to the input raster tile to be clipped.
+    - reference_tile_path (str): Path to the reference raster tile whose dimensions will be used for clipping.
+    - output_tile_path (str): Path to save the clipped raster tile.
+    """
+    # Open the input and reference tiles
+    input_ds = gdal.Open(input_tile_path)
+    reference_ds = gdal.Open(reference_tile_path)
+
+    if input_ds is None or reference_ds is None:
+        print("Error: Unable to open raster tiles.")
+        return
+
+    # Get the bounding box of the reference tile
+    reference_ulx, xres, xskew, reference_uly, yskew, yres = reference_ds.GetGeoTransform()
+    reference_lrx = reference_ulx + (reference_ds.RasterXSize * xres)
+    reference_lry = reference_uly + (reference_ds.RasterYSize * yres)
+
+    # Set projwin for gdal.Translate using the dimensions of the reference tile
+    projwin = [reference_ulx, reference_uly, reference_lrx, reference_lry]
+
+    output_file_path = make_file_path(input_tile_path, output_tile_dir, sufix = ".tif")
+
+    # Clip the input tile using the dimensions of the reference tile
+    gdal.Translate(output_file_path, input_tile_path, projWin=projwin)
+
+    # Close the datasets
+    input_ds = None
+    reference_ds = None
+    return output_file_path
+
+
+def make_file_path(input_file, output_file_dir, sufix):
+    """
+    Short pure function that takes file path and ouput dir and makes a path.
+
+    Parameters:
+        input_file(str): a file which will be copied
+        output_file_dir(str): dir where new file 
+        sufix(str)
+    """
+    output_file = f'{os.path.splitext(os.path.basename(input_file))[0]}{sufix}'
+    output_file_path = os.path.join(output_file_dir, output_file)
+    return output_file_path
 
 
 def create_neighbour_vrt(file, output_folder):
@@ -431,6 +497,7 @@ def create_neighbour_vrt(file, output_folder):
     Returns:
         vrt containing 9 tiles
     """
+    os.makedirs(output_folder, exist_ok=True)
     file_name = os.path.basename(file)
     tile_folder = os.path.dirname(file)
     # find file coords
@@ -444,15 +511,13 @@ def create_neighbour_vrt(file, output_folder):
 
         input_tiles = []
         # find neighbour files
-        for i in range(lon_value - 1, lon_value + 1):
-            for j in range(lat_value - 1, lat_value + 1):
+        for i in range(lon_value - 1, lon_value + 2):
+            for j in range(lat_value - 1, lat_value + 2):
                 # Construct the file name for each surrounding tile
                 tile_name = f'Copernicus_DSM_30_{lat_direction}{j:02d}_00_{lon_direction}{i:03d}_00_DEM.tif'
                 tile_path = os.path.join(tile_folder, tile_name)
                 if os.path.exists(tile_path):
                     input_tiles.append(tile_path)
-                else:
-                    continue
 
         # create vrt with gdal
         vrt_path = os.path.join(output_folder, f'{file_name}.vrt')

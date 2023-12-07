@@ -46,7 +46,8 @@ def main():
     # pipeline_flows.transform_ESA_world_cover_vrt_flow()
     # pipeline_flows.transform_aspect_flow()
     # pipeline_flows.transform_geomorphon_flow()
-    pipeline_flows.transform_geomorphon_chunky()
+    # pipeline_flows.transform_geomorphon_chunky()
+    pipeline_flows.transform_geomorphon_multiprocess_flow()
     # pipeline_flows.transform_tree_cover_density_vrt_flow()
 
     # pipeline_flows.load_countries_boundaries_flow()
@@ -61,7 +62,6 @@ def main():
     # NA geomorphon
     # dem_file = config["esa_usa_dem_90_vrt"]
     # output_file = config["NA_geomorphon"]
-    # dem_file = "/mnt/volume-nbg1-1/shared/nikola/ESA_global_dem_90m/Copernicus_DSM_30_N45_00_E015_00_DEM.tif"
     # output_file = "/mnt/volume-nbg1-1/shared/nikola/NA_geomorphon_N45_E015"
     # pipeline_transform_resample.transform_geomorphon_qgis(dem_file, output_file)
 
@@ -73,7 +73,8 @@ def main():
     # dem_90 = config["esa_global_dem_90_vrt"]
     # esa_world_cover_vrt = config["esa_world_cover_vrt"]
     # graphical_file = config["tree_cover_density_vrt"]
-    # qgis_run_app.grapical_map_flow(graphical_file)
+
+    # qgis_run_app.grapical_map_flow(graphical_file, zoom = "layer")
 
     # pipeline_flows.load_aspect_flow()
     # pipeline_flows.load_slope_flow()

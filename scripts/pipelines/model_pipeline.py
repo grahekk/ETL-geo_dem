@@ -6,10 +6,10 @@ from tqdm import tqdm
 
 from .pipeline_download_s3_global import download_tree_cover_density
 from .pipeline_load_localPG import import_to_local_db
-from .pipeline_transform_vrt_gdal import gdal_build_vrt, absolute_file_paths, geofilter_paths_list, create_neighbour_vrt
+from .pipeline_transform_vrt_gdal import gdal_build_vrt, absolute_file_paths, geofilter_paths_list, create_neighbour_vrt, clip_tile_by_dimensions
 from .pipeline_transform_qgis_resample import transform_geomorphon_qgis, geomorphon_chunky
+from .pipeline_download_utils_soils import unzip_file
 import settings
-
 
 config = settings.get_config()
 schema = settings.get_schema()
@@ -143,6 +143,7 @@ class DataTransformer:
         builds virtual raster from set of files
 
         Args:
+            self: references to the data proided in initialized object - in this case input directory
             output_vrt (str): path to the output virtual raster (in config file)
             extent (str): choose whether geographical extent should or shouldn't be reshaped
             
@@ -170,7 +171,7 @@ class DataTransformer:
         transform_geomorphon_qgis(dem_file, output_file)
 
     @log_execution_time_and_args
-    def geomorphon_class(self):
+    def geomorphon_chunks(self):
         """
         Transform given raster dataset using geomorphon algorithm in `transform_geomorphon_qgis`.
         Chunky style.
@@ -180,9 +181,25 @@ class DataTransformer:
         """
         dem_files = self.data
         for file in tqdm(dem_files):
-            vrt_path = create_neighbour_vrt(file, config["NA_geomorphon_dir"])
-            geomorphon_chunky(file, vrt_path)
-            logging.info(f"vrt file {vrt_path} created as well as geomorphon for it")
+            vrt_path = create_neighbour_vrt(file, config["tmp_dir"])
+            geomorphon_raw_tile = geomorphon_chunky(file, vrt_path)
+            geomorphon_tile = clip_tile_by_dimensions(geomorphon_raw_tile, file, config["NA_geomorphon_dir"])
+            logging.info(f"vrt file {vrt_path} created as well as geomorphon {geomorphon_tile} for it")
+    
+    @log_execution_time_and_args
+    def directory_unzip_files(self):
+        """
+        Method to unzip all the .zip files in given directory.
+
+        Parameters:
+            directory(str): a directory where .zip files are
+        """
+        directory = self.data
+        file_paths = absolute_file_paths(directory, '.zip')
+        for i in file_paths:
+            unzip_file(i, directory)
+        logging.info(f"Files successfully unzipped in {directory}")
+
 
 
 class DataLoader:

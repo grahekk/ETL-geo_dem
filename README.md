@@ -55,23 +55,29 @@ The pipelines in this project serve for collecting data generally for North Amer
 
 - USGS: For USA DEM (Digital Elevation Model) and forest resources data.
 - CEC (Commission for Environmental Cooperation): For land cover data of North America.
-- Canadian Government's Website: For DEM (Digital Elevation Model) data of Canada, including HRDEM and for soil data of Canada
-- Canadian Government's Website: For soil data of Canada
-- US Web Soil Survey: For soil data of the USA.
+- Canadian Government's Website: For DEM (Digital Elevation Model) data of Canada, including HRDEM and for soil data of Canada https://natural-resources.canada.ca/science-and-data/science-and-research/earth-sciences/geography/topographic-information/download-directory-documentation/17215 
+- Canadian Government's Website: For soil data of Canada from https://sis.agr.gc.ca/cansis/nsdb/slc/index.html
+- US Web Soil Survey: For soil data of the USA from https://websoilsurvey.nrcs.usda.gov/app/
+- World soil database FAO: https://data.apps.fao.org/map/catalog/srv/eng/catalog.search?uuid=446ed430-8383-11db-b9b2-000d939bc5d8#/metadata/446ed430-8383-11db-b9b2-000d939bc5d8
 - NASA's Earth Data: For global DEM (Digital Elevation Model) data.
 - ESA world cover: land cover data for whole world, available on: https://registry.opendata.aws/esa-worldcover-vito/
 - ESA global dem: global dem in 90m and 30m resolution, downloaded from https://sentinels.copernicus.eu/web/sentinel/-/copernicus-dem-new-direct-data-download-access
+- ESA global dem boundaries and grid: metadata is downloaded from https://spacedata.copernicus.eu/collections/copernicus-digital-elevation-model 
 - Eurostat: countries boundaries from https://ec.europa.eu/eurostat/web/gisco/geodata/reference-data/administrative-units-statistical-units/countries 
 - Geoboundaries: countries boundaries from https://www.geoboundaries.org/index.html#features-wrapper 
 - Geoboundaries: continent boundaries from https://hub.arcgis.com/datasets/esri::world-continents/about
+- Global tree cover density 30m: University of Maryland: Global Forest Change 2000–2014 from https://earthenginepartners.appspot.com/science-2013-global-forest/download_v1.2.html
+- Global tree cover density 30m: Also possible to find on Arcgis Tree Cover (2000) https://www.arcgis.com/home/item.html?id=5fb3275e080e497fa44174d2b14d4b7c
+- Imperviousness: Global Man-made Impervious Surface (GMIS) Dataset From Landsat tiles are obtained from https://cmr.earthdata.nasa.gov/search/concepts/C1517102461-SEDAC.html (earthdata credentials required)
 
 
 ## Target PostgreSQL Database
-The collected data is intended to be transformed and loaded into a given PostgreSQL database. You should configure the database connection details and schema as needed in your transformation and loading scripts.
+The collected data is intended to be transformed and loaded into a given PostgreSQL database. You should configure the database connection details and schema as needed in your `config.yaml` and `settings.py` to set up transformation and loading scripts/pipelines.
 
 ## Final words
 
-This README file provides an overview of your project's structure and instructions on how to use it. You can further customize it to include specific details about your project's goals, data sources, and any additional setup or configuration steps.
+This README file provides an overview of project's structure and instructions on how to use it and what it can do. 
+You can further customize it to include specific details about your project's goals, data sources, and any additional setup or configuration steps.
 
 
 

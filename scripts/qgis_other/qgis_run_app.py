@@ -137,24 +137,7 @@ def create_and_export_map(conn_parameters, schema:str, layer_path:str, output_im
     # add layer to the map and then fix the zoom
     map_frame.setLayers([layer])
 
-    if zoom == "table": # query the layer to zoom to
-        tablename = "world_continents_boundaries"
-        continent = 'North America'
-        uri = QgsDataSourceUri()
-        uri.setConnection(*conn_parameters.values())
-        uri.setDataSource (schema, tablename, "geometry", "continent = 'North America", '')
-        
-        zooming_layer=QgsVectorLayer(uri.uri(False), tablename, "postgres")
-        if not zooming_layer.isValid():
-            print(f"Failed to load the layer {zooming_layer}!")
-            return
-        QgsProject.instance().addMapLayer(zooming_layer)
-
-    elif zoom == "layer":
-        zooming_layer = config[""]
-        QgsProject.instance().addMapLayer(zooming_layer)
-
-    elif zoom == "query":
+    if zoom == "query":
         with psycopg2.connect(**conn_parameters) as conn:
             with conn.cursor() as cursor:
                 cursor.execute("SELECT ST_asText(ST_Envelope(geometry)) FROM osm.world_continents_boundaries as cna WHERE cna.continent = 'North America'")
@@ -163,7 +146,7 @@ def create_and_export_map(conn_parameters, schema:str, layer_path:str, output_im
         # zooming_layer = QgsVectorLayer(f"?query=SELECT ST_GeomFromText('{wkt_string}')", "extent", "virtual")
             zoom = QgsRectangle.fromWkt(wkt_string)
 
-    elif zoom == "":
+    elif zoom == "layer":
         zooming_layer = layer
         zoom = zooming_layer.extent()
     
@@ -188,7 +171,7 @@ def create_and_export_map(conn_parameters, schema:str, layer_path:str, output_im
 
 
 # flows here
-def grapical_map_flow(file_path:str):
+def grapical_map_flow(file_path:str, zoom = "query"):
     """
     Generate a graphical map using QGIS with specified parameters.
 
@@ -210,7 +193,7 @@ def grapical_map_flow(file_path:str):
     image_size_mm=(300,300)
     dpi=300 
     original_color=True
-    args_graphics = [conn_parameters, schema, file_path, output_image_path, layout_path, image_size_mm, dpi, original_color]
+    args_graphics = [conn_parameters, schema, file_path, output_image_path, layout_path, image_size_mm, dpi, original_color, zoom]
     return run_qgis_app(create_and_export_map, args_graphics)
 
 

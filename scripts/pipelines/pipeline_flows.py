@@ -3,9 +3,10 @@ from dotenv import load_dotenv
 import os
 import sys
 import time
+import multiprocessing
 
 from .pipeline_load_localPG import import_to_local_db
-from .pipeline_transform_vrt_gdal import geofilter_paths_list, gdal_build_vrt, absolute_file_paths, transform_raster, categorize_aspect, create_vrt_ovr_flow
+from .pipeline_transform_vrt_gdal import geofilter_paths_list, gdal_build_vrt, absolute_file_paths, transform_raster, categorize_aspect, create_vrt_ovr_flow, split_list
 from . import model_pipeline
 
 sys.path.append("/home/nikola/4_north_america/scripts/")
@@ -152,14 +153,12 @@ def transform_aspect_flow():
     return print(f"task transform_aspect_flow done!")
 
 
-def transform_geomorphon_flow():
+def transform_geomorphon_flow(process_partition = "whole or chunky"):
     """
     Transform raster tiles using geomorphon algorithm from grass gis.
     """
-    # input_raster = config["esa_usa_dem_90_vrt"]
-    input_raster = "/mnt/volume-nbg1-1/shared/nikola/ESA_global_dem_90m/Copernicus_DSM_30_N45_00_E015_00_DEM.tif"
-    # geomorphon_file = config["NA_geomorphon"]
-    geomorphon_file = config["NA_geomorphon"]+"_45_15.tif"
+    input_raster = config["esa_usa_dem_90_vrt"]
+    geomorphon_file = config["NA_geomorphon"]
     geomorphon_transformer = model_pipeline.DataTransformer(input_raster)
     return geomorphon_transformer.geomorphon(geomorphon_file)
 
@@ -167,8 +166,58 @@ def transform_geomorphon_flow():
 def transform_geomorphon_chunky():
     os.makedirs(config["NA_geomorphon_dir"], exist_ok=True)
     files_list = geofilter_paths_list(config["esa_global_dem_90_dir"])
+    files_list = split_list(files_list, 3)
+    part_1 = files_list[0]
+    part_2 = files_list[1]
+    part_3 = files_list[2]
     geomorphon_transformer = model_pipeline.DataTransformer(files_list)
-    return geomorphon_transformer.geomorphon_class()
+    return geomorphon_transformer.geomorphon_chunks()
+
+    # files_list = "/mnt/volume-nbg1-1/shared/nikola/ESA_global_dem_90m/Copernicus_DSM_30_N45_00_E015_00_DEM.tif"
+
+def geomorphon_process_files(file_list):
+    """
+    Process a list of files using the DataTransformer. 
+    Transform mode is chunky - dataset is transformed chunk by chunk, not whole.
+
+    Args:
+        file_list (list): List of file paths to be processed.
+
+    Returns:
+        list: Result of processing the file list using the DataTransformer.
+    """
+    geomorphon_transformer = model_pipeline.DataTransformer(file_list)
+    return geomorphon_transformer.geomorphon_chunks()
+
+
+def transform_geomorphon_multiprocess_flow():
+    """
+    Transform dem data with geomorphon algorithm using parallel processing.
+
+    This function reads a list of file paths from the ESA global DEM directory,
+    splits it into three parts, and processes each part in parallel using
+    multiprocessing. The processing involves creating a DataTransformer instance
+    for each part and calling the geomorphon_chunks method to transform the data.
+
+    Returns:
+        list: List containing the results of processing each part of the file list.
+    """
+    os.makedirs(config["NA_geomorphon_dir"], exist_ok=True)
+    
+    files_list = geofilter_paths_list(config["esa_global_dem_90_dir"])
+    files_list = split_list(files_list, 3)
+    
+    # Create a multiprocessing pool with the number of processesm one per list
+    pool = multiprocessing.Pool(processes=3)
+    
+    # Use the pool.map to apply the process_files function to each part of the list
+    result = pool.map(geomorphon_process_files, files_list)
+    
+    # Close the pool to free up resources
+    pool.close()
+    pool.join()
+    
+    return result
 
 
 def transform_tree_cover_density_vrt_flow():
