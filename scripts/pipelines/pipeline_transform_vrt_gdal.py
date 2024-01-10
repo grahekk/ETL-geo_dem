@@ -9,7 +9,7 @@ import re
 import numpy as np
 from statistics import mean
 
-# sys.path.append("/home/nikola/4_north_america/scripts/")
+# sys.path.append("/home/nikola/4_north_america/scripts")
 
 # load configuration
 import settings
@@ -138,7 +138,7 @@ def filter_by_geocellid(links, coc = "continent", continent = "North America", c
             lon_direction = geocell_id_match.group(3)
             lon_value = geocell_id_match.group(4)
                 
-                # Construct the geocell ID based on the extracted values
+            # Construct the geocell ID based on the extracted values
             geocell_id = f"{lat_direction}{lat_value}{lon_direction}{lon_value}"
 
             if geocell_id in filter_list:
@@ -523,7 +523,74 @@ def create_neighbour_vrt(file, output_folder):
         vrt_path = os.path.join(output_folder, f'{file_name}.vrt')
         gdal_build_vrt(input_tiles, vrt_path)
         return vrt_path
-    
+
+
+def clip_layers_by_attribute(input_file, output_file, attribute_field='sea_level'):
+    """
+    Clip vector layers in the input file based on the 'sea_level' attribute and store the results in the output file.
+
+    Parameters:
+        input_file (str): The path to the input file containing vector layers.
+        output_file (str): The path to the output file where clipped layers will be stored.
+        attribute_field (str): The name of the attribute field used for categorization (default is 'sea_level').
+
+    Returns:
+        None
+
+    Notes:
+        This function reads vector layers from the input file, calculates the union
+        of features based on the specified attribute, and then clips each feature
+        with the feature having the next 'sea_level' value. The clipped features are
+        stored in the output file.
+
+        The function assumes that the input file contains multiple vector layers with
+        the specified attribute for categorization.
+
+    """
+    # Open the input layer
+    # driver = ogr.GetDriverByName("GPKG")
+    driver = ogr.GetDriverByName("ESRI Shapefile")
+    input_ds = ogr.Open(input_file, 0)  # 0 for read-only access
+
+    # Create the output layer
+    output_ds = driver.CreateDataSource(output_file)
+    output_layer = output_ds.CreateLayer("clipped_layers", geom_type=ogr.wkbPolygon)
+
+    # Loop through each pair of consecutive features and calculate the difference
+    for i in range(1, input_ds.GetLayerCount()):
+        layer1 = input_ds.GetLayerByIndex(i - 1)
+        layer2 = input_ds.GetLayerByIndex(i)
+
+        # Iterate through unique 'sea_level' values
+        sea_levels = set(feature.GetField(attribute_field) for feature in layer1)
+        for sea_level in sea_levels:
+            # Get features with the current 'sea_level' in both layers
+            features_layer1 = [feature for feature in layer1 if feature.GetField(attribute_field) == sea_level]
+            features_layer2 = [feature for feature in layer2 if feature.GetField(attribute_field) == sea_level]
+
+            # Create a union geometry for features in the first layer
+            union_geom = ogr.Geometry(ogr.wkbPolygon)
+            for feature in features_layer1:
+                union_geom = union_geom.Union(feature.GetGeometryRef())
+
+            # Calculate the difference for each feature in the second layer
+            for feature2 in features_layer2:
+                difference_geom = feature2.GetGeometryRef().Difference(union_geom)
+
+                # Create a new feature in the output layer with the difference geometry
+                output_feature = ogr.Feature(output_layer.GetLayerDefn())
+                output_feature.SetGeometry(difference_geom)
+
+                # Set the 'sea_level' attribute for the output feature
+                output_feature.SetField(attribute_field, sea_level)
+
+                # Add the feature to the output layer
+                output_layer.CreateFeature(output_feature)
+
+    # Clean up
+    input_ds = None
+    output_ds = None
+
 
 def create_vrt_ovr_flow(input_raster_directory:str, output_vrt:str, vrt_chunks=1, use_prefix='.tif'):
     """
