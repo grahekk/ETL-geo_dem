@@ -47,8 +47,10 @@ def main():
     # pipeline_flows.transform_aspect_flow()
     # pipeline_flows.transform_geomorphon_flow()
     # pipeline_flows.transform_geomorphon_chunky()
-    pipeline_flows.transform_geomorphon_multiprocess_flow()
+    # pipeline_flows.transform_geomorphon_multiprocess_flow()
+    # pipeline_flows.transform_geomorphon_vrt_flow()
     # pipeline_flows.transform_tree_cover_density_vrt_flow()
+    pipeline_flows.coastal_flooding_flow()
 
     # pipeline_flows.load_countries_boundaries_flow()
     # pipeline_flows.load_continents_boundaries_flow()
