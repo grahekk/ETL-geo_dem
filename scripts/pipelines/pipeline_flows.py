@@ -205,9 +205,22 @@ def transform_geomorphon_multiprocess_flow():
     os.makedirs(config["NA_geomorphon_dir"], exist_ok=True)
     
     files_list = geofilter_paths_list(config["esa_global_dem_90_dir"])
+
+    # now, if a process has stopped at any moment, you will want to set this to true so that the proces doesn't have to be repeated again
+    skip_created_files = True
+    if skip_created_files == True:
+        already_created_files = absolute_file_paths(config["NA_geomorphon_dir"], ".tif")
+        processed_files_stripped = []
+        for file in already_created_files:
+            stripped_file = os.path.basename(file).replace('_geomorphon.tif', '.tif')
+            stripped_file = os.path.join(config["esa_global_dem_90_dir"], stripped_file)
+            processed_files_stripped.append(stripped_file)
+
+        files_not_processed = [file for file in files_list if file not in processed_files_stripped]
+        files_list = files_not_processed
+
     files_list = split_list(files_list, 3)
-    
-    # Create a multiprocessing pool with the number of processesm one per list
+    # Create a multiprocessing pool with the number of processes - one per list
     pool = multiprocessing.Pool(processes=3)
     
     # Use the pool.map to apply the process_files function to each part of the list
@@ -228,3 +241,23 @@ def transform_tree_cover_density_vrt_flow():
     output_vrt = config["tree_cover_density_vrt"]
     TCD_transformer = model_pipeline.DataTransformer(input_dir)
     return TCD_transformer.build_vrt(output_vrt)
+
+def transform_geomorphon_vrt_flow():
+    """
+    Create virtual raster (vrt file) for transformed geomorphon tiles (90m resolution). 
+    """
+    input_dir = config["NA_geomorphon_dir"]
+    output_vrt = config["NA_geomorphon_vrt"]
+    geomorphon_transformer = model_pipeline.DataTransformer(input_dir)
+    return geomorphon_transformer.build_vrt(output_vrt)
+
+
+def coastal_flooding_flow():
+    """
+    Create predicted areas where coastal flooding could occur using DEM tiles.
+    """
+    os.makedirs(config["sea_level_rise_tmp"], exist_ok=True)
+    files_list = geofilter_paths_list(config["esa_global_dem_30_dir"])     
+    
+    coastal_flooding_transformer = model_pipeline.DataTransformer(files_list)
+    return coastal_flooding_transformer.coastal_flooding()    
