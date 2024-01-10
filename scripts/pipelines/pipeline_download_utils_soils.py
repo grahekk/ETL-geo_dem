@@ -129,6 +129,7 @@ def delete_non_tif_files(directory:str, extension:str):
 def move_files_from_subfolder_to_parent(subfolder_path):
     """
     Moves all files from a subfolder to the directory above the subfolder.
+    Or move files from subdirectories in directory into directory.
 
     Args:
         subfolder_path (str): Path to the subfolder whose files need to be moved.
@@ -149,13 +150,13 @@ def move_files_from_subfolder_to_parent(subfolder_path):
         shutil.move(source_path, destination_path)
 
 
-def delete_non_matching_files_and_subdirectories(directory):
+def delete_non_matching_files_and_subdirectories(directory:str):
     """
     Recursively deletes files and subdirectories in the specified directory and its
     subdirectories that do not end with ".tar" or "DEM.tif".
 
     Parameters:
-    - directory (str): The path to the directory from which non-matching files and
+    - directory (str): The path to the directory from wh ich non-matching files and
       subdirectories should be deleted
     """
     for root, dirs, files in os.walk(directory, topdown=False):
@@ -173,8 +174,13 @@ def delete_non_matching_files_and_subdirectories(directory):
             except OSError:
                 pass
 
-def move_tif_files_to_parent_directory(root_dir):
+def move_tif_files_to_parent_directory(root_dir:str):
+    """
+    Take all the tif files in subdirectories into one directory above.
 
+    Parameters:
+        root_dir(str): directory where subdirectories with tif files are
+    """
     # Iterate through the root directory and its subdirectories
     files_to_move = [f for f in os.listdir(root_dir) if os.path.isfile(os.path.join(root_dir, f))]
     total_count = len([file.endswith(".tif") for file in files_to_move])
