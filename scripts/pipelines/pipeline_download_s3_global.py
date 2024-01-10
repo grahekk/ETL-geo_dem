@@ -253,6 +253,7 @@ def download_ESA_global_dem_90_flow():
 def download_ESA_global_dem_30_flow():
     download_ESA_global_dem("30", files_filter = True)
     esa_global_dem_30_dir = config[f"esa_global_dem_30_dir"]
+
     # unzip
     file_paths = absolute_file_paths(esa_global_dem_30_dir, '.tar')
     file_paths = list(file_paths)
@@ -262,5 +263,6 @@ def download_ESA_global_dem_30_flow():
         fun_args = [i, esa_global_dem_30_dir]
         print_progress(unzip_file, fun_args, count, total_count, fun_times)
 
+    move_tif_files_to_parent_directory(esa_global_dem_30_dir)
     delete_non_matching_files_and_subdirectories(esa_global_dem_30_dir)
     return print("task for ESA dem 30m downloading and unzipping done!")
