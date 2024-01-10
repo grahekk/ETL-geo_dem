@@ -9,6 +9,7 @@ from .pipeline_load_localPG import import_to_local_db
 from .pipeline_transform_vrt_gdal import gdal_build_vrt, absolute_file_paths, geofilter_paths_list, create_neighbour_vrt, clip_tile_by_dimensions
 from .pipeline_transform_qgis_resample import transform_geomorphon_qgis, geomorphon_chunky
 from .pipeline_download_utils_soils import unzip_file
+from .pipeline_transform_sea_level import sea_levels_loop, sea_level_precheck
 import settings
 
 config = settings.get_config()
@@ -199,7 +200,24 @@ class DataTransformer:
         for i in file_paths:
             unzip_file(i, directory)
         logging.info(f"Files successfully unzipped in {directory}")
-
+    
+    
+    @log_execution_time_and_args
+    def coastal_flooding(self):
+        """
+        method to calculate (coastal) zones under the risk of flooding by the sea from DEM tiles.
+        """
+        files_list = self.data
+        file_paths = sea_level_precheck(files_list)
+    
+        low_altitude_files = "low_altitude_dem_files.txt"
+        with open(low_altitude_files, 'w') as file:
+            file.write(file_paths)
+    
+        print("number of dem tiles lower than 10m", len(file_paths))
+        # for file in file_paths:
+        #     sea_levels_loop(file, 10)
+        logging.info(f"Sea level rise process complete")
 
 
 class DataLoader:
