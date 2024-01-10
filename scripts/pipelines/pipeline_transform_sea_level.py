@@ -25,6 +25,7 @@ import settings
 config = settings.get_config()
 conn_parameters = settings.get_conn_parameters()
 schema = settings.get_schema()
+
 database_name = conn_parameters["database"]
 password = conn_parameters["password"]
 host = conn_parameters["host"]
@@ -32,29 +33,7 @@ username = conn_parameters["user"]
 coastlines = config["NA_coastlines"]
 
 sys.path.append('/usr/lib/python3/dist-packages')
-from qgis.core import * 
-from qgis.gui import *
-from qgis.PyQt.QtGui import QImage, QPainter, QColor
-from qgis.PyQt.QtCore import QSize, QFileInfo
-from qgis.utils import *
-from PyQt5.QtCore import QVariant
-
 from osgeo import gdal, ogr
-
-
-# Initialize the QGIS application
-os.environ["QT_QPA_PLATFORM"] = "offscreen"
-QgsApplication.setPrefixPath("/usr/lib/qgis", True) # Supply path to qgis install location
-
-# initialize the app
-qgs = QgsApplication([], False) # Create a reference to the QgsApplication. Setting the second argument to False disables the GUI.
-qgs.initQgis() # Load providers
-
-sys.path.append('/usr/share/qgis/python/plugins')
-# import processing *after* initializing the application
-import processing
-from processing.core.Processing import Processing
-Processing.initialize()
 
 
 def sea_level_with_database():
@@ -87,68 +66,6 @@ def sea_level_split():
     # ogr_layer_algebra.py SymDifference -input_ds valid_sea_level_10.shp -method_ds sea_level_output_9.gpkg -output_ds sea_level_difference_10.shp -nlt POLYGON
 
 
-def sea_level_difference_europe_reparation():
-    for i in tqdm(range(10, 0, -1)):
-        if i == 9 or i==7:
-            continue
-        else:
-            try:
-                input_shp = f"/mnt/volume-nbg1-1/shared/nikola/sea_level_rise/valid_sea_level_{i}.shp"
-                method_ds = f"/mnt/volume-nbg1-1/shared/nikola/sea_level_rise/valid_sea_level_{i-1}.shp"
-                output_shp = f'sea_level_difference_{i}.shp'
-                command = f"ogr_layer_algebra.py SymDifference -input_ds {input_shp} -method_ds {method_ds} -output_ds {output_shp} -nlt POLYGON"
-                os.system(command)
-            except Exception as e:
-                print(f"Error processing sea level {i}: {e}")
-    
-    return print("Task for sea_level_differences done!")
-
-
-def sea_level_qgis_reparation():
-    # split vector layerq
-    project = QgsProject.instance()
-    sea_level_raw_file = "/mnt/volume-nbg1-1/shared/domagoj/Data_SEA_LEVEL_RISE/Europe_sea_level_rise_DEM_10m/Europe_sea_level_rise_DTM_epsg4326_rez_10m.gpkg"
-
-    os.makedirs(config["sea_level_rise_dir"], exist_ok=True)
-    sea_level_file = os.path.join(config["sea_level_rise_dir"], "Europe_sea_level_rise_10m.shp")
-    processing.run("native:fixgeometries", 
-                   {'INPUT':f'{sea_level_raw_file}|layername=Europe_sea_level_rise_DTM_epsg4326_rez_10m',
-                    'METHOD':1,
-                    'OUTPUT':sea_level_file})
-    
-    processing.run("native:splitvectorlayer", 
-                   {'INPUT':f'{sea_level_file}',
-                    'FIELD':'sea_level',
-                    'PREFIX_FIELD':True,
-                    'FILE_TYPE':1,
-                    'OUTPUT':f'{config["sea_level_rise_dir"]}'})
-    
-    print("Split donito!!!")
-    split_layers = {}
-    for i in range(10,1,-1):
-        path = os.path.join(config["sea_level_rise_dir"], f"sea_level_{i}.shp")
-        split_layers[i] = path
-    
-    for level, layer_path in tqdm(split_layers.items()):
-        try:
-            layer_name_1 = f"sea_level_{level}.shp"
-            layer_1 = QgsVectorLayer(layer_path, layer_name_1, "ogr")
-            project.addMapLayer(layer_1)
-
-            layer_name_2 = f"sea_level_{level-1}.shp"
-            layer_2 = QgsVectorLayer(layer_path, layer_name_2, "ogr")
-            project.addMapLayer(layer_2)
-
-            #difference
-            output_path = os.path.join(config["sea_level_rise_dir"], f"sea_level_difference_{level}.shp")
-            processing.run("native:difference", 
-                        {'INPUT':layer_1,
-                        'OVERLAY':layer_2,
-                        'OUTPUT':output_path,
-                        'GRID_SIZE':None})
-            
-        except Exception as e:
-            print(f"Exception {e} was found so sea_level_{level} is skiped")
 
 def valid_geometries_shell():
     for i in tqdm(range(1, 9, 1)):
@@ -301,26 +218,12 @@ def gdal_create_buffer(input_file, output_buffer, buffer_dist):
 
 def gdal_select_pixels(input_dem_file, output_extracted, sea_level = 10):
     """
-    this function calls gdal calculator utility (gdal_calc.py) and extracts wanted pixels.
+    this function calls gdal calculator utility (gdal_calc.py) to extract wanted pixels.
     """
     calc = f"((A>=-999)*(A<={sea_level}))*{1} + (A>{sea_level})*-9999"
 
     gdal_calc_cmd = f'gdal_calc.py -A {input_dem_file} --outfile={output_extracted} --calc="{calc}" --NoDataValue=-9999 --co "COMPRESS=DEFLATE" --co "NBITS=32" --overwrite'
-    # gdal_calc_cmd = f'gdal_calc.py -A {input_dem_file} --outfile={output_extracted} --calc="((A>=0)*(A<=10) + (A>0)*(A<10) + (A>0)*(A<=10) + (A>=0)*(A<10) + (A>0)*(A<=10) + (A>=0)*(A<10) + (A>0)*(A<=10) + (A>=0)*(A<10) + (A>0)*(A<=10)) * A" --NoDataValue=-9999 --co "COMPRESS=DEFLATE" --co "NBITS=32" --overwrite'
     os.system(gdal_calc_cmd)
-    print(f"done gdal calc - pixels selection for file {output_extracted}")
-    return output_extracted
-
-def gdal_categorize_pixels(input_dem_file, output_extracted, sea_level = 10):
-    """
-    this function calls gdal calculator utility (gdal_calc.py) and categorizes wanted pixels.
-    """
-    calc = f"((A>=-999)*(A<={0}))*{0} + ((A>{0})*(A<={1}))*{1} + ((A>{1})*(A<={2}))*{2} +((A>{2})*(A<={3}))*{3} +((A>{3})*(A<={4}))*{4} +((A>{4})*(A<={5}))*{5} + ((A>{5})*(A<={6}))*{6} + ((A>{6})*(A<={7}))*{7} + ((A>{7})*(A<={8}))*{8} + ((A>{8})*(A<={9}))*{9} + ((A>{9})*(A<={10}))*{10} + (A>{sea_level})*-9999"
-
-    gdal_calc_cmd = f'gdal_calc.py -A {input_dem_file} --outfile={output_extracted} --calc="{calc}" --NoDataValue=-9999 --co "COMPRESS=DEFLATE" --co "NBITS=32" --overwrite'
-    # gdal_calc_cmd = f'gdal_calc.py -A {input_dem_file} --outfile={output_extracted} --calc="((A>=1)*(A<=10) + (A>0)*(A<10) + (A>0)*(A<=10) + (A>=0)*(A<10) + (A>0)*(A<=10) + (A>=0)*(A<10) + (A>0)*(A<=10) + (A>=0)*(A<10) + (A>0)*(A<=10)) * A" --NoDataValue=-9999 --co "COMPRESS=DEFLATE" --co "NBITS=32" --overwrite'
-    os.system(gdal_calc_cmd)
-    print(f"done gdal calc - pixels selection for file {output_extracted}")
     return output_extracted
 
 
@@ -329,9 +232,8 @@ def polygonize_raster(input_raster, output_polygons):
     Function utilizes gdal_polygonize.py to convert given raster into vector poylgons.
     It is advisable to use 8 connectedness. 
     """
-    gdal_calc_cmd = f'gdal_polygonize.py -8 {input_raster} -overwrite -f "ESRI Shapefile" {output_polygons}'
+    gdal_calc_cmd = f'gdal_polygonize.py -8 {input_raster} -overwrite -f "ESRI Shapefile" {output_polygons} {output_polygons} "level"'
     os.system(gdal_calc_cmd)
-    print(f"done gdal polygonize for file {output_polygons}")
     return output_polygons
 
 
@@ -418,84 +320,6 @@ def gpd_extract_features_by_location(input_shapefile, reference_shapefile, outpu
         joined_gdf.to_file(output_shapefile)
 
 
-def merge_shapefiles(bigger_shapefile:str, smaller_shapefile:str, output_merged:str):
-    """
-    Merge two shapefiles using geopandas
-    """
-    # Read the input shapefiles
-    gdf_bigger = gpd.read_file(bigger_shapefile)
-    gdf_smaller = gpd.read_file(smaller_shapefile)
-
-    # Concatenate the two GeoDataFrames
-    with warnings.catch_warnings():
-        warnings.simplefilter(action='ignore', category=UserWarning)
-        merged_gdf = gpd.pd.concat([gdf_bigger, gdf_smaller], ignore_index=True)
-        merged_gdf = merged_gdf.dissolve(by="DN", ignore_index=True)
-        # Save the merged GeoDataFrame to a new shapefile
-        merged_gdf.to_file(output_merged)
-
-    return output_merged
-
-
-def extract_pixels_with_neighbors(input_file, output_file, min_height, max_height):
-    # Read the input DEM
-    dataset = gdal.Open(input_file)
-    dem = dataset.ReadAsArray()
-
-    # Create a mask for the desired height range
-    mask = np.logical_and(dem >= min_height, dem <= max_height)
-
-    # Create a 3x3 convolution kernel
-    kernel = np.ones((3, 3), dtype=bool)
-
-    # Apply the kernel to the mask
-    neighbor_mask = np.convolve(mask, kernel, mode='same')
-
-    # Apply the combined mask to the DEM
-    result = np.where(neighbor_mask, dem, -9999)
-
-    # Write the result to a new GeoTIFF file
-    driver = gdal.GetDriverByName('GTiff')
-    output_dataset = driver.Create(output_file, dataset.RasterXSize, dataset.RasterYSize, 1, gdal.GDT_Float32)
-    output_dataset.SetGeoTransform(dataset.GetGeoTransform())
-    output_dataset.SetProjection(dataset.GetProjection())
-    output_band = output_dataset.GetRasterBand(1)
-    output_band.WriteArray(result)
-    output_band.SetNoDataValue(-9999)
-
-    # Close the datasets
-    output_dataset = None
-    dataset = None
-
-    print(f"Extraction complete. Output saved to {output_file}")
-
-
-def extract_and_label_connected_components(input_file, output_file, min_height, max_height):
-    # Read the input DEM
-    dataset = gdal.Open(input_file)
-    dem = dataset.ReadAsArray()
-
-    # Create a mask for the desired height range
-    mask = np.logical_and(dem >= min_height, dem <= max_height)
-
-    # Label connected components
-    labeled_array, num_features = label(mask)
-
-    # Write the labeled result to a new GeoTIFF file
-    driver = gdal.GetDriverByName('GTiff')
-    output_dataset = driver.Create(output_file, dataset.RasterXSize, dataset.RasterYSize, 1, gdal.GDT_Int32, options=['COMPRESS=DEFLATE'])
-    output_dataset.SetGeoTransform(dataset.GetGeoTransform())
-    output_dataset.SetProjection(dataset.GetProjection())
-    output_band = output_dataset.GetRasterBand(1)
-    output_band.WriteArray(labeled_array)
-    output_band.SetNoDataValue(0)
-
-    # Close the datasets
-    output_dataset = None
-    dataset = None
-
-    print(f"Extraction and labeling complete. Output saved to {output_file}")
-
 def label_connected_pixels(raster_file, line_shapefile, output_raster, label):
     """
     functon uses rasterio to label intersected and connected pixels to coastline
@@ -508,68 +332,31 @@ def label_connected_pixels(raster_file, line_shapefile, output_raster, label):
     with rasterio.open(raster_file) as src:
         # Create a mask for the pixels connected to the line
         mask = geometry_mask(line_gdf.geometry, out_shape=src.shape, transform=src.transform, invert=True)
-        # Read the raster data
         raster_data = src.read(1, masked=True)
 
         #neighbour part
         # Create a 3x3 convolution kernel
-        # kernel = np.ones((3, 3), dtype=bool)
-        # Apply the kernel to the mask - problem with multidimensional array
-        # neighbor_mask = scipy.ndimage.convolve(mask, kernel)
+        kernel = np.ones((3, 3), dtype=bool)
+        # Apply the kernel to the mask - problem with multidimensional array - scipy
+        neighbor_mask = scipy.ndimage.convolve(mask, kernel)
         # neighbor_mask = np.convolve(mask, kernel, mode='same')
 
-        # Apply the combined mask to the DEM
-        # result = np.where(neighbor_mask, raster_data, -9999)
-
-        # Label the connected pixels with 1
-        # labeled_data = np.where(neighbor_mask, 1, 0)
-        # labeled_data[mask] = 1
-
-        # dilation part
-        # Dilate the mask using 8-connectivity
-        # dilated_mask = binary_dilation(mask, footprint=np.ones((3, 3)))
-
-        # # Label pixels
-        # labeled_data = np.zeros_like(raster_data, dtype=np.uint8)
-        # labeled_data[(raster_data == 1) & dilated_mask] = 1
-
-        # # Update metadata for the output raster
+        # Update metadata for the output raster
         profile = src.profile
         profile.update(dtype=rasterio.int32, count=1)
 
-    # kernel = np.ones((3, 3), dtype=bool)
-    
-    # raster_data = raster_data[raster_data==1]
-    # mask = mask[mask==1]
-    # mask = np.logical_and(raster_data, mask)
-    # mask = np.add(raster_data, mask)
-    features_values = raster_data[mask]
+        result = np.where(neighbor_mask, raster_data, profile["nodata"])
 
-    # labeling the connectedness - works good
-    # labeled_image = measure.label(raster_data, connectivity=2)
-
-    # neighbor_mask = scipy.ndimage.convolve(mask, kernel)
-    # labeled_data = np.where(neighbor_mask, 1, 0)
-
-    # # Set non-intersecting pixels to 0
-    # raster_data[mask == False] = 0
-
-    # # Create a binary mask for pixels with value 1
-    # binary_mask = (raster_data == 1)
-
-    # Dilate the binary mask to include neighbors by 8-connectivity
-    # dilated_mask = binary_dilation(binary_mask, kernel)
-
-    # Extract the connected pixels
-    # labeled_data = raster_data[dilated_mask]
-
-    # Write the labeled raster to the output file
+    # save file
     with rasterio.open(output_raster, 'w', **profile) as dst:
-        dst.write(mask, 1)
+        dst.write(result, 1)
 
 
-def extract_pixels_by_mask(input_raster:str, mask_input:str, output_raster:str, mode:str):
-    assert mode in ("clip", "difference")
+def extract_pixels_by_mask(input_raster:str, mask_input:str, output_raster:str, mode:str, level:int):
+    """
+    Function that takes input raster and does operation with vector mask
+    """
+    assert mode in ("clip", "difference", "invert")
     vector_layer = gpd.read_file(mask_input)
 
     with rasterio.open(input_raster) as src:
@@ -581,33 +368,71 @@ def extract_pixels_by_mask(input_raster:str, mask_input:str, output_raster:str, 
         if mode == "clip":
             mask = geometry_mask(vector_layer.geometry, out_shape=src.shape, transform=src.transform, invert=False)
             features_values = np.logical_and(raster_data, mask)
+
         elif mode == "difference":
             mask = geometry_mask(vector_layer.geometry, out_shape=src.shape, transform=src.transform, invert=False)
             # features_values = np.where(mask, raster_data, profile['nodata'])
             features_values = np.where(mask, 1 - raster_data, raster_data)
 
-    profile.update(nodata=0)
+            if level > 0:
+                profile.update(nodata=0)
+
+        elif mode == "invert":
+            mask = geometry_mask(vector_layer.geometry, out_shape=src.shape, transform=src.transform, invert=False)
+            features_values = np.logical_and(raster_data, mask)
+            features_values = np.invert(features_values)
+
     with rasterio.open(output_raster, 'w', **profile) as dst:
         dst.write(features_values, 1)
 
+
 def coastal_flooding_rasters_sum(input_raster, raster_to_add, raster_sum, level:int):
     """
-    function that adds different layers of floding to a tif file
+    function that adds different layers of flooding to a tif file
     """
     with rasterio.open(input_raster) as src:
-        # Read the raster data
-        input_raster_data = src.read(1, masked=True)
-    with rasterio.open(raster_to_add) as src:
-        # Read the raster data
-        add_raster_data = src.read(1, masked=True)
-        profile =  src.profile
+        input_raster_data = src.read(1)
 
-    #change values of raster according to sea level
+    with rasterio.open(raster_to_add) as src:
+        profile = src.profile
+        add_raster_data = src.read(1)
+
+    if level > 0:
+        level = level +1
+
     add_raster_data = np.where(add_raster_data==1, level, profile['nodata'])
-    sum_values = np.add(input_raster, add_raster_data)
+    sum_values = np.add(input_raster_data, add_raster_data)    
 
     with rasterio.open(raster_sum, 'w', **profile) as dst:
         dst.write(sum_values, 1)
+
+
+def coastal_flooding_raster_subtraction(flooding_raster:str, output_raster:str, subtract = 1):
+    """
+    function takes the flooding layer raster and subtracts all pixels for 1
+    """
+    with rasterio.open(flooding_raster) as src:
+        flood_data = src.read(1)
+        profile = src.profile
+
+    flood_data = np.where(flood_data, flood_data-subtract, profile["nodata"])
+
+    with rasterio.open(output_raster, 'w', **profile) as dst:
+        dst.write(flood_data, 1)
+
+
+def subtract_one_from_shapefile_attribute(shapefile_path, attribute_column_name, output_shapefile):
+    """
+    Take an attribute/column in a shapefile and subtract 1 from it (sea level)
+    """
+    # Read the shapefile
+    gdf = gpd.read_file(shapefile_path)
+    
+    # Subtract 1 from the specified attribute column
+    gdf[attribute_column_name] = gdf[attribute_column_name] - 1
+    
+    # Save the modified shapefile
+    gdf.to_file(output_shapefile)
 
 
 def basename_withoutext(input_file):
@@ -626,98 +451,112 @@ def give_tmp_file_name(input_file:str, level:int, name:str):
 
 def sea_levels_loop(input_file, sea_level: int):
     """
-    function that extracts rising sea levels from dem file in a loop. It loops over levels for given and up to given maximum level in meters.
+    function that extracts rising sea levels from DEM file in a loop. 
+    It loops over levels for given and up to given maximum level in meters.
 
     1. pixels are extracted for sea levels from 0 to 10.
     2. pixels are polygonized
     3. vectors intersections with coastline checked
-    4. TODO: check touching/intersection of neighbouring dem tiles (polygons) (ones that are not close(intersection/touching) to coastline) to polygons
+    4. difference is made by vector mask
+    5. difference layers are merged
     """
     sea_level = sea_level + 1 # otherwise 10 will not be selected
-    for level in tqdm(range(0, sea_level, 1)):
-        
-        #TODO: add tmp folder and context manager
-        # with tempfile.TemporaryDirectory() as tmpdirname:
-        #     print('created temporary directory', tmpdirname)
 
-        # selecting by height
-        selected_sea_level_file = f"{basename_withoutext(input_file)}_sea_level_{level}.tif"
-        # selected_sea_level = gdal_select_pixels(input_file, selected_sea_level_file, level)
+    #TODO: add tmp folder and context manager
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        sea_levels_simulation = f"{tmpdirname}/{basename_withoutext(input_file)}_sea_levels_simulation.tif"
 
-        # pixel connectivity overcome
-        polygonized_pixels_file = f"{basename_withoutext(input_file)}_sea_level_{level}.shp"
-        # polygonized_pixels = polygonize_raster(selected_sea_level, polygonized_pixels_file)
+        for level in tqdm(range(0, sea_level, 1)):
+            # selecting by height
+            selected_sea_level_file = f"{tmpdirname}/{basename_withoutext(input_file)}_sea_level_{level}.tif"
+            selected_sea_level = gdal_select_pixels(input_file, selected_sea_level_file, level)
 
-        # spatial relation with sea solving
-        intersected_features_file = f"{basename_withoutext(input_file)}_sea_level_intersected_{level}.shp"
-        # gpd_extract_features_by_location(polygonized_pixels_file, coastlines, intersected_features_file)
+            # pixel connectivity overcome
+            polygonized_pixels_file = f"{tmpdirname}/{basename_withoutext(input_file)}_sea_level_{level}.shp"
+            polygonized_pixels = polygonize_raster(selected_sea_level, polygonized_pixels_file)
 
-        # pixel connectivity and intersection overcome - clip the raster
-        intersected_tif = f"{basename_withoutext(input_file)}_sea_level_intersected_{level}.tif"
-        # clip by mask
-        # extract_pixels_by_mask(selected_sea_level_file, intersected_features_file, intersected_tif, mode="clip")
-        
-        # this part calculates the difference and packs the layers
-        if level > 0:
-            # difference overcome - vectors take too much time
-            difference_tif = f"{basename_withoutext(input_file)}_sea_level_difference_{level}.tif"
-            # extract_pixels_by_mask(intersected_tif, reference_file, difference_tif, mode="difference")
+            # spatial relation with sea
+            intersected_features_file = f"{tmpdirname}/{basename_withoutext(input_file)}_sea_level_intersected_{level}.shp"
+            gpd_extract_features_by_location(polygonized_pixels_file, coastlines, intersected_features_file)
 
-            # then polygonize - to see the result
-            difference_polygonized = f"{basename_withoutext(input_file)}_difference_polygonized_{level}.shp"
-            # polygonize_raster(difference_tif, difference_polygonized)
+            # pixel connectivity and intersection overcome - clip the raster by mask
+            intersected_tif = f"{tmpdirname}/{basename_withoutext(input_file)}_sea_level_intersected_{level}.tif"
+            extract_pixels_by_mask(selected_sea_level_file, intersected_features_file, intersected_tif, mode="clip", level=level)
+            
+            # this part calculates the difference (and polygonizes the difference if needed)
+            if level > 0:
+                # difference with rasters
+                difference_tif = f"{tmpdirname}/{basename_withoutext(input_file)}_sea_level_difference_{level}.tif"
+                extract_pixels_by_mask(intersected_tif, reference_file, difference_tif, mode="difference", level=level)
 
-        else:
-            # in case that level is 0, existing files are used further as refference and difference tif
-            reference_file = intersected_features_file
-            difference_tif = intersected_tif
-            base_layer = intersected_tif
+                # polygonize - difference shall serve as reference file in next iter
+                # difference_polygonized = f"{tmpdirname}/{basename_withoutext(input_file)}_difference_polygonized_{level}.shp"
+                # polygonize_raster(difference_tif, difference_polygonized)
 
-        sea_levels_simulation = f"{basename_withoutext(input_file)}_sea_levels_simulation.tif"
-        coastal_flooding_rasters_sum(base_layer, difference_tif, sea_levels_simulation, level)
-        base_layer = sea_levels_simulation
+                # reference file for difference extraction *after* the differences were extracted
+                reference_file = intersected_features_file
 
-        # intersected_features_file_tif = f"{basename_withoutext(input_file)}_sea_level_intersected_{level}.tif"
-        # label_connected_pixels(selected_sea_level_file, coastlines, intersected_features_file_tif, level)
+                # edge cases
+                if base_layer==None:
+                    base_layer = difference_tif
+                
+                # add a tif layer to one tif file
+                coastal_flooding_rasters_sum(base_layer, difference_tif, sea_levels_simulation, level)
+                base_layer = sea_levels_simulation
 
-        # difference and merging part - putting layers together in context
-        # TODO: fix this so that difference actually cuts layers
-        # if level>0:
-        #     # try:
-        #     difference_file = give_tmp_file_name(input_file, level, "sea_level_diff")
-        #     # calculate_polygon_difference(smaller_polygon, intersected_features_file, difference_file)
-        #     gdal_polygon_difference(smaller_polygon, intersected_features_file, difference_file)
+            else:
+                # in case that level is 0, existing file is used just for invert
+                reference_file = intersected_features_file # vector mask file
+                difference_tif = f"{tmpdirname}/{basename_withoutext(input_file)}_sea_level_difference_{level}.tif"
+                extract_pixels_by_mask(intersected_tif, reference_file, difference_tif, mode="invert", level = level)
 
-        #     if level == 10:
-        #         merged_file = f"{basename_withoutext(input_file)}_sea_level.shp"
-        #     else:
-        #         merged_file = give_tmp_file_name(input_file, level, "sea_level_merged")
-        #     smaller_polygon = merge_shapefiles(smaller_polygon, difference_file, merged_file)
+                # this base layers is the forst to be added to main file
+                base_layer = difference_tif
 
-        #     # except:
-        #     #     print(f"Could not calculate difference for {intersected_features_file}")
-        # elif level==0:
-        #     smaller_polygon = intersected_features_file
+        # and convert the result
+        polygonized_simulation = f"{tmpdirname}/{basename_withoutext(input_file)}_coastal_flooding.shp"
+        polygonize_raster(sea_levels_simulation, polygonized_simulation)
+
+        # last subtraction
+        output_file = f"{basename_withoutext(input_file)}_coastal_flooding.shp"
+        subtract_one_from_shapefile_attribute(polygonized_simulation, "level", output_file)
+
+    return print(output_file, " is done")
 
 
+def altitude_filter_files_list(dem_files:str, threshold_altitude=10):
+    """
+    filter all dem tiles with altitude lower than specified treshold
 
-def sea_levels_noloop(input_file):
-    level = 10
-    selected_sea_level_file = f"{basename_withoutext(input_file)}_sea_level_{level}.tif"
-    gdal_categorize_pixels(input_file, selected_sea_level_file)
+    Parameters:
+        dem_files(str): a list of dem files
+        threshold_altitude(int): a number by which files are filtered
+    """
+    tiles_with_low_altitude = []
 
-    polygonized_pixels_file = f"{basename_withoutext(input_file)}_sea_level_{level}.shp"
-    polygonized_pixels = polygonize_raster(selected_sea_level_file, polygonized_pixels_file)
+    for file_path in tqdm(dem_files):
 
-    intersected_features_file = f"{basename_withoutext(input_file)}_sea_level_intersected_{level}.shp"
-    gpd_extract_features_by_location(polygonized_pixels_file, coastlines, intersected_features_file)
+        dataset = gdal.Open(file_path)
 
+        if dataset is not None:
+            # Get altitude values as a NumPy array
+            altitude_array = dataset.ReadAsArray()
 
-def sea_level_precheck():
+            # Check if any pixel has altitude less than the threshold
+            if (altitude_array < threshold_altitude).any():
+                tiles_with_low_altitude.append(file_path)
+
+            # Close the dataset
+            dataset = None
+
+    return tiles_with_low_altitude
+
+def sea_level_precheck(files_list:str):
     """
     this function iterates over grid of dem files and check if dem tiles are close to sea and if they contain pixels with latitude lower than 10m.
     """
-    pass
+    low_dem_tiles = altitude_filter_files_list(files_list)
+    return low_dem_tiles
 
 
 def contours_polygons_v2():
@@ -739,10 +578,6 @@ def contours_polygons_v2():
 
 
 if __name__ == "__main__":
-
-    # contour_file = contour_sea_level()
-    contour_file = "/home/nikola/4_north_america/GeoDataPump/data/contours_45_14_filtered.shp"
-    buffer = "/home/nikola/4_north_america/GeoDataPump/data/contours_45_14_buffered.shp"
     dem_eu_10_45_14 = "/mnt/volume-nbg1-1/satellite/eu_dem/dem10m/Copernicus_DSM_03_N45_00_E014_00_DEM.tif"
     lat, lon = 45, 14
     output_extracted = f"/home/nikola/4_north_america/GeoDataPump/data/selected_dem_pixels_10m_{lat}_{lon}.tif"
@@ -752,16 +587,3 @@ if __name__ == "__main__":
     coastlines = kvarner_coastline
     # get_coastline_from_pg(kvarner_coastline, extent="kvarner")
     sea_levels_loop(dem_eu_10_45_14, sea_level=10)
-    # sea_levels_noloop(dem_eu_10_45_14)
-
-    # input_file = dem_eu_10_45_14
-    # output_file = output_extracted
-    # min_height = 0
-    # max_height = 10
-    # extract_pixels_with_neighbors(input_file, output_file, min_height, max_height)
-    # extract_and_label_connected_components(input_file, output_file, min_height, max_height)
-
-
-    # gdal_create_buffer(contour_file, buffer, 0.05)
-    # sea_level_difference()
-
