@@ -2,14 +2,15 @@ import logging
 import time
 import datetime
 from tqdm import tqdm
-
+import os
+import tempfile
 
 from .pipeline_download_s3_global import download_tree_cover_density
 from .pipeline_load_localPG import import_to_local_db
-from .pipeline_transform_vrt_gdal import gdal_build_vrt, absolute_file_paths, geofilter_paths_list, create_neighbour_vrt, clip_tile_by_dimensions
+from .pipeline_transform_vrt_gdal import gdal_build_vrt, absolute_file_paths, geofilter_paths_list, create_neighbour_vrt, clip_tile_by_dimensions, gdal_resample, transform_raster, rescale_raster
 from .pipeline_transform_qgis_resample import transform_geomorphon_qgis, geomorphon_chunky
 from .pipeline_download_utils_soils import unzip_file
-from .pipeline_transform_sea_level import sea_levels_loop, sea_level_precheck
+from .pipeline_transform_sea_level import sea_level_precheck
 import settings
 
 config = settings.get_config()
@@ -17,7 +18,7 @@ schema = settings.get_schema()
 
 logging.basicConfig(filename=config["log_file_dir"], level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-# Decorator function
+# Decorator functions
 def log_execution_time_and_args(func):
     """
     A decorator that logs the execution time, arguments, and result of a function. 
@@ -56,6 +57,7 @@ def log_execution_time_and_args(func):
             raise
     return wrapper
 
+# actually `tqdm` from tqdm module is better than this
 def loop_progress(iterable, desc="Processing", unit="files"):
     total_iterations = len(iterable)
     progress_bar = tqdm(iterable, total=total_iterations, desc=desc, unit=unit)
@@ -117,14 +119,21 @@ class DataTransformer:
     Class for transforming downloaded gis data.
 
     Attributes:
-        data (Any): File path pointing to the data to be transformed.
+        data (Any): List of file paths pointing to the data to be transformed.
+        output(Any): A path to output directory where the transformed data is put
 
     Methods:
         transform(): Transforms the data (generic).
         build_vrt(): Builds virtual raster
+        geomorphon(): Transforms geomorphon from given DEM tile or merged DEM dataset
+        geomorphon_chunks(): Builds gemorphon by iterating over dem tiles
+        directory_unzip_files(): Unzip all the files from all the .tar or .zip fiels in a directory
+        coastal_flooding(): Calculate potential coastal flooding from DEM tiles
+        resample_tif(): resample a tif resolution to lower resolution
     """
-    def __init__(self, data:str):
+    def __init__(self, data:str, output:str):
         self.data = data
+        self.output = output
 
     @log_execution_time_and_args
     def transform(self):
@@ -158,10 +167,47 @@ class DataTransformer:
         else:
             files_list = geofilter_paths_list(input_dir, coc = "country")
         gdal_build_vrt(files_list, output_vrt)
+        self.data = output_vrt
+
+        logging.info(f"Vrt file built in file {output_vrt}")
         return print("Task done!")
+
+    @log_execution_time_and_args
+    def merge_vrt(self):
+        """
+        Build a file from vrt pointing to tiles with gdal_translate.
+        """
+        input_vrt = self.data
+        output_tif = self.output 
+        # COMPRESS=LZW or BIGTIFF=YES -co options?
+        gdal_translate_cmd = f"gdal_translate -of GTiff -b 1 -co BIGTIFF=YES {input_vrt}  {output_tif}"
+        gdal_translate_cmd = f"gdal_translate -of GTiff -co BIGTIFF=YES -co TILED=YES -co COMPRESS=LZW {input_vrt}  {output_tif}"
+        # gdal_translate_cmd = f"gdal_merge -of GTiff -b 1 -co BIGTIFF=YES {input_vrt}  {output_tif}"
+        os.system(gdal_translate_cmd)
+        
+        # after the file was done, new data is written into class
+        self.data = output_tif
+        logging.info(f"The file was merged into {output_tif}")
+        return
+
+    @log_execution_time_and_args
+    def slope(self):
+        """
+        Transform given DEM tif using gdal slope algorithm.
+        """
+        input_raster = self.data
+        slope_raster = config["slope_tmp"]
+        transform_raster(input_raster, slope_raster, "slope")
+        logging.info(f"Slope was computed into {slope_raster}")
+        
+        rescaled_raster = self.output
+        rescale_raster(slope_raster, rescaled_raster)
+        logging.info(f"Slope was computed into {rescaled_raster}")
+        return
+
     
     @log_execution_time_and_args
-    def geomorphon(self, output_file:str):
+    def geomorphon(self, search:int, skip:int, flat:int, dist:int):
         """
         Transform given raster dataset using geomorphon algorithm in `transform_geomorphon_qgis`.
 
@@ -169,10 +215,14 @@ class DataTransformer:
             output_file(str): file path to write output raster to
         """
         dem_file = self.data
-        transform_geomorphon_qgis(dem_file, output_file)
+        output_file = self.output
+        transform_geomorphon_qgis(dem_file, output_file, search, skip, flat, dist)
+        logging.info(f"Geomorphon done {output_file} with parameters {search, skip, flat, dist}")
+        return
+
 
     @log_execution_time_and_args
-    def geomorphon_chunks(self):
+    def geomorphon_chunks(self, search:int, skip:int, flat:int, dist:int):
         """
         Transform given raster dataset using geomorphon algorithm in `transform_geomorphon_qgis`.
         Chunky style.
@@ -181,12 +231,16 @@ class DataTransformer:
             output_file(str): file path to write output raster to
         """
         dem_files = self.data
-        for file in tqdm(dem_files):
-            vrt_path = create_neighbour_vrt(file, config["tmp_dir"])
-            geomorphon_raw_tile = geomorphon_chunky(file, vrt_path)
-            geomorphon_tile = clip_tile_by_dimensions(geomorphon_raw_tile, file, config["NA_geomorphon_dir"])
-            logging.info(f"vrt file {vrt_path} created as well as geomorphon {geomorphon_tile} for it")
+        output_dir = self.output
+
+        with tempfile.TemporaryDirectory() as tmpdirname:
+            for file in tqdm(dem_files):
+                vrt_path = create_neighbour_vrt(file, tmpdirname)
+                geomorphon_raw_tile = geomorphon_chunky(file, vrt_path, tmpdirname, search, skip, flat, dist)
+                geomorphon_tile = clip_tile_by_dimensions(geomorphon_raw_tile, file, output_dir)
+                logging.info(f"vrt file {vrt_path} created as well as geomorphon {geomorphon_tile} for it")
     
+
     @log_execution_time_and_args
     def directory_unzip_files(self):
         """
@@ -211,13 +265,28 @@ class DataTransformer:
         file_paths = sea_level_precheck(files_list)
     
         low_altitude_files = "low_altitude_dem_files.txt"
+        file_paths_to_write = ", ".join(file_paths) # convert into string
+
         with open(low_altitude_files, 'w') as file:
-            file.write(file_paths)
+            file.write(file_paths_to_write) # write string to .txt file
     
         print("number of dem tiles lower than 10m", len(file_paths))
         # for file in file_paths:
         #     sea_levels_loop(file, 10)
         logging.info(f"Sea level rise process complete")
+
+
+    @log_execution_time_and_args
+    def resample_tif(self):
+        """
+        method for resampling dem tiles to lower resolution
+        """
+        dem_files_list = self.data
+        output_dir = self.output
+
+        for file in tqdm(dem_files_list):
+            gdal_resample(file, output_dir)
+        logging.info(f"Resampling done for {len(self.data)} files")
 
 
 class DataLoader:
