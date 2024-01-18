@@ -64,25 +64,38 @@ def get_countries_boundaries(country = "United States"):
     return return_data
 
 
-def get_geocellid(country = "United States", coc = "country"):
+def get_geocellid(c_name = "United States", by = "country", extent = (-25, 35, 35, 72)):
     """
-    function to return geocellid of a specified country
+    Function to return list of geocellid's of a specified extent or c_name.
+    Geocellids are queried from pg db using geoalchemy.
 
     Parameters:
-        country (str): country name to be queried from database
+        c_name (str): country or continent name to be queried from database, depending on `by` argument
+        by (str): specify a category by which geocellids are filtered
         coc (str): (coc - Continent or country) either "continent" or "country" - a switch whether to filter by continent or a country
     """
+    assert by in ("country", "continent", "extent")
+    assert len(extent) == 4
+
     # session is for interacting with db
     session = Session()
 
-    if coc == "country":
+    if by == "country":
         boundary = world_countries_boundaries
+        geocells = session.query(esa_grid).join(boundary, esa_grid.c.geometry.intersects(boundary.c.geom)).filter(boundary.c.country == c_name).all()
+        return_data = [i.geocellid for i in geocells]
 
-    else:
+    elif by == "extent":
+        lon_min, lon_max, lat_min, lat_max = extent
+        bounding_box = func.ST_MakeEnvelope(lon_min, lat_min, lon_max, lat_max, 4326)
+        geocells = session.query(esa_grid).filter(func.ST_Intersects(esa_grid.c.geometry, bounding_box)).all()
+        return_data = [i.geocellid for i in geocells]
+
+    elif by == "continent":
         boundary = world_continents_boundaries
+        geocells = session.query(esa_grid).join(boundary, esa_grid.c.geometry.intersects(boundary.c.geom)).filter(boundary.c.continent == c_name).all()
+        return_data = [i.geocellid for i in geocells]
         
-    geocells = session.query(esa_grid).join(boundary, esa_grid.c.geometry.intersects(boundary.c.geom)).filter(boundary.c.country == country).all()
-    return_data = [i.geocellid for i in geocells]
 
     # Close the session
     session.close()
