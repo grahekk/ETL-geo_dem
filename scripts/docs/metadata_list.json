@@ -1,0 +1,74 @@
+[
+  {
+    "file_path": "/mnt/volume-nbg1-1/shared/nikola/ESA_world_cover.vrt",
+    "date_created": "2023-11-22 13:31:30",
+    "date_modified": "2023-11-22 13:31:30",
+    "resolution": "Pixel size in degrees is (0.000083333333333,-0.000083333333333) and in meters it is ((8.333, -8.333))",
+    "coordinate_system": "EPSG: 4326",
+    "file_size": "2.58 MB",
+    "description": null
+  },
+  {
+    "file_path": "/mnt/volume-nbg1-1/shared/nikola/NA_slope.tif",
+    "date_created": "2024-01-18 13:55:26",
+    "date_modified": "2023-11-20 17:04:45",
+    "resolution": "Pixel size in degrees is (0.001637267479153,-0.000833333333333) and in meters it is ((163.727, -83.333))",
+    "coordinate_system": "EPSG: 4326",
+    "file_size": "75.48 GB",
+    "description": null
+  },
+  {
+    "file_path": "/mnt/volume-nbg1-1/shared/nikola/NA_aspect.tif",
+    "date_created": "2024-01-18 13:53:21",
+    "date_modified": "2023-11-20 17:42:47",
+    "resolution": "Pixel size in degrees is (0.001637267479153,-0.000833333333333) and in meters it is ((163.727, -83.333))",
+    "coordinate_system": "EPSG: 4326",
+    "file_size": "18.87 GB",
+    "description": null
+  },
+  {
+    "file_path": "/mnt/volume-nbg1-1/shared/nikola/NA_geomorphon.tif",
+    "date_created": "2023-12-18 14:52:32",
+    "date_modified": "2023-12-18 14:52:32",
+    "resolution": "Pixel size in degrees is (0.001636903252329,-0.001637354292027) and in meters it is ((163.69, -163.735))",
+    "coordinate_system": "EPSG: 4326",
+    "file_size": "19.21 GB",
+    "description": null
+  },
+  {
+    "file_path": "/mnt/volume-nbg1-1/shared/nikola/NA_tree_cover_density_30m.tif",
+    "date_created": "2024-01-18 13:10:37",
+    "date_modified": "2024-01-18 13:10:37",
+    "resolution": "Pixel size in degrees is (0.000250000000000,-0.000250000000000) and in meters it is ((25.0, -25.0))",
+    "coordinate_system": "EPSG: 4326",
+    "file_size": "15.79 GB",
+    "description": null
+  },
+  {
+    "file_path": "/mnt/volume-nbg1-1/shared/nikola/usa_dem.vrt",
+    "date_created": "2023-10-16 12:31:44",
+    "date_modified": "2023-10-16 12:31:44",
+    "resolution": "Pixel size in degrees is (0.000092592592676,-0.000092592592677) and in meters it is ((9.259, -9.259))",
+    "coordinate_system": "EPSG: 4269",
+    "file_size": "636.55 KB",
+    "description": null
+  },
+  {
+    "file_path": "/mnt/volume-nbg1-1/shared/nikola/ESA_global_dem_30m.vrt",
+    "date_created": "2023-11-22 15:31:55",
+    "date_modified": "2023-11-22 15:31:55",
+    "resolution": "Pixel size in degrees is (0.000545755826384,-0.000277777777778) and in meters it is ((54.576, -27.778))",
+    "coordinate_system": "EPSG: 4326",
+    "file_size": "4.86 MB",
+    "description": null
+  },
+  {
+    "file_path": "/mnt/volume-nbg1-1/shared/nikola/ESA_global_dem_90m.vrt",
+    "date_created": "2023-11-22 11:42:34",
+    "date_modified": "2023-11-22 11:42:34",
+    "resolution": "Pixel size in degrees is (0.002057789403440,-0.000833333333333) and in meters it is ((205.779, -83.333))",
+    "coordinate_system": "EPSG: 4326",
+    "file_size": "25.57 MB",
+    "description": null
+  }
+]
