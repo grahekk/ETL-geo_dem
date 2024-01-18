@@ -4,6 +4,7 @@ import os
 import sys
 import time
 import multiprocessing
+import tempfile
 
 from .pipeline_load_localPG import import_to_local_db
 from .pipeline_transform_vrt_gdal import geofilter_paths_list, gdal_build_vrt, absolute_file_paths, transform_raster, categorize_aspect, create_vrt_ovr_flow, split_list
@@ -233,6 +234,45 @@ def transform_geomorphon_multiprocess_flow():
     return result
 
 
+def eu_resample_1km_flow():
+    """
+    Transformation flow for geomorphon for europe for resolution of 1km.
+    1. resamples the 90m dem to 1km resolution.
+    2. calculates geomorphon
+    """
+
+    # files_list = geofilter_paths_list(config["esa_global_dem_90_dir"], by="extent", extent = (-25, 35, 35, 72))
+
+    EU_resample_1km_tif = config["EU_resample_1km_tif"]
+    EU_resample_1km_vrt = config["EU_resample_1km_vrt"]
+
+    # with tempfile.TemporaryDirectory() as tmpdirname:
+    #     resample_transformer = model_pipeline.DataTransformer(files_list, tmpdirname)
+    #     resample_transformer.resample_tif()
+        
+    #     for fname in os.listdir(tmpdirname):
+    #         if "clipped" in fname:
+    #             os.remove(os.path.join(tmpdirname, fname))
+    #             print(f"{fname} removed!")
+
+
+    #     files_list = absolute_file_paths(tmpdirname, extension=".tif")
+    #     vrt_transformer = model_pipeline.DataTransformer(tmpdirname, EU_resample_1km_vrt)
+
+    #     vrt_transformer.build_vrt(EU_resample_1km_vrt)
+    #     vrt_transformer.output = EU_resample_1km_tif
+    #     vrt_transformer.merge_vrt()
+
+    EU_slope_1km_tif = config["EU_slope_1km_tif"]
+    # slope_transformer = model_pipeline.DataTransformer(EU_resample_1km_tif, EU_slope_1km_tif)
+    # slope_transformer.slope()
+    
+    EU_geomorphon_1km_tif = config["EU_geomorphon_1km_tif"]
+    geomorphon_transformer = model_pipeline.DataTransformer(EU_resample_1km_tif, EU_geomorphon_1km_tif)
+    geomorphon_transformer.geomorphon(search=17, skip=3, flat=1, dist=1)
+    print(f"geomorphon done {EU_geomorphon_1km_tif}")
+    
+
 def transform_tree_cover_density_vrt_flow():
     """
     Create virtual raster (vrt file) for downloaded tree cover density tiles of 30m resolution. 
@@ -240,7 +280,8 @@ def transform_tree_cover_density_vrt_flow():
     input_dir = config["tree_cover_density_dir"]
     output_vrt = config["tree_cover_density_vrt"]
     TCD_transformer = model_pipeline.DataTransformer(input_dir)
-    return TCD_transformer.build_vrt(output_vrt)
+    TCD_transformer.build_vrt(output_vrt)
+    
 
 def transform_geomorphon_vrt_flow():
     """
@@ -251,6 +292,18 @@ def transform_geomorphon_vrt_flow():
     geomorphon_transformer = model_pipeline.DataTransformer(input_dir)
     return geomorphon_transformer.build_vrt(output_vrt)
 
+def transform_coastal_flooding_vrt():
+    """
+    take dem tiles with potential flood and create vrt for them
+    """
+    tiles_path = config["coastal_flooding_tiles"]
+    with open(tiles_path, "r") as file: #prevoiusly saved file from coastal_flooding precheck
+        lines = file.read()
+        tiles = lines.split(", ")
+
+    output_vrt = config["coastal_flooding_vrt"]
+    gdal_build_vrt(tiles, output_vrt)
+    return
 
 def coastal_flooding_flow():
     """
