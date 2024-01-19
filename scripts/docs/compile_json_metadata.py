@@ -17,14 +17,6 @@ with open(metadata_description_path, 'r') as file:
     metadata_description = yaml.safe_load(file)
 
 
-# TODO:
-# list of "main" files, or files for which the metadata is being compiled
-# list with description and rest of hardcoded data for each of "main" files
-# get date of creation/change for each file
-# get functions/flows that created files
-# get paths and urls from config file
-# create config file with descriptions
-
 def update_file_size(file_path:str):
     """
     Update the file_size attribute with the human-readable file size.
@@ -40,6 +32,26 @@ def update_file_size(file_path:str):
         index += 1
 
     return "{:.2f} {}".format(file_size_bytes, suffixes[index]) 
+
+def get_directory_size(directory_path):
+    """
+    Get the total size of a directory and return it in a human-readable format.
+    """
+    total_size_bytes = 0
+
+    for dirpath, dirnames, filenames in os.walk(directory_path):
+        for filename in filenames:
+            file_path = os.path.join(dirpath, filename)
+            total_size_bytes += os.path.getsize(file_path)
+
+    # Convert total size to a human-readable format (e.g., KB, MB, GB)
+    suffixes = ['B', 'KB', 'MB', 'GB', 'TB']
+    index = 0
+    while total_size_bytes > 1024 and index < len(suffixes) - 1:
+        total_size_bytes /= 1024.0
+        index += 1
+
+    return "{:.2f} {}".format(total_size_bytes, suffixes[index])
 
 def get_resolution(file_path):
     try:
@@ -110,9 +122,13 @@ class FileMetadata:
         self.coordinate_system = None
         # from config file
         self.description = None
-        self.creation_method = None
-        self.method_path = None
+        self.time_to_make = None
         self.download_url = None
+        self.creation_method = None
+        self.script_path = None
+        self.version = "1.0"
+        self.data_attributes = None
+        self.image_path = None
 
     def update_metadata(self):
         """
@@ -126,7 +142,12 @@ class FileMetadata:
         modified_timestamp = os.path.getmtime(self.file_path)
         self.date_modified = datetime.datetime.fromtimestamp(modified_timestamp)
         
-        self.file_size = update_file_size(self.file_path)
+        # if a file is vrt, it is pointing to a dataset, which is why wee need size of a directory
+        if self.file_path.endswith('.vrt'):
+            self.file_size = get_directory_size(self.file_path.replace(".vrt",""))
+        else:
+            self.file_size = update_file_size(self.file_path)
+
         self.resolution = get_resolution(self.file_path)
 
         if self.file_path.endswith(".tif") or self.file_path.endswith(".vrt"):
@@ -135,7 +156,7 @@ class FileMetadata:
             self.coordinate_system = ogr_get_coordinate_system(self.file_path)  
 
 
-def create_metadata_list(file_paths, descriptions):
+def create_metadata_list(file_paths, descriptions, script_paths, creation_methods, times_to_make, download_urls, versions, data_attributes, image_paths):
     """
     Create a list of FileMetadata objects based on provided file_paths and descriptions.
 
@@ -148,9 +169,18 @@ def create_metadata_list(file_paths, descriptions):
     """
     metadata_list = []
 
-    for file_path, description in zip(file_paths, descriptions):
+    for file_path, description, script_path, creation_method, time_to_make, download_url, version, data_attribute, image_path in zip(file_paths, descriptions, script_paths, creation_methods, times_to_make, download_urls, versions, data_attributes, image_paths):
         metadata_obj = FileMetadata(file_path)
         metadata_obj.update_metadata()
+        metadata_obj.description = description
+        metadata_obj.time_to_make = time_to_make
+        metadata_obj.download_url = download_url
+        metadata_obj.creation_method = creation_method
+        metadata_obj.script_path = script_path
+        metadata_obj.version = version
+        metadata_obj.data_attributes = data_attribute
+        metadata_obj.image_path = image_path
+        # append the object to metadata list
         metadata_list.append(metadata_obj)
 
     return metadata_list
@@ -173,7 +203,14 @@ def export_metadata_to_json(metadata_list, json_file_path):
             "resolution": metadata_obj.resolution,
             "coordinate_system": metadata_obj.coordinate_system,
             "file_size": metadata_obj.file_size,
+            "version": metadata_obj.version,
+            "download_url": metadata_obj.download_url,
+            "creation_method": metadata_obj.creation_method,
+            "script_path": metadata_obj.script_path,
+            "time_to_make": metadata_obj.time_to_make,
+            "attributes": metadata_obj.data_attributes,
             "description": metadata_obj.description,
+            "image_path": metadata_obj.image_path,
         })
 
     with open(json_file_path, "w") as json_file:
@@ -189,10 +226,27 @@ def main():
                   config["usgs_dem_vrt"],
                   config["esa_global_dem_30_vrt"],
                   config["esa_global_dem_90_vrt"]]
-    
-    descriptions = [metadata_description["esa_world_cover"]["description_hrv"], "Description 2", "Description 3", "Description 2", "Description 3", "Description 2", "Description 3", "Description 2"]
 
-    metadata_list = create_metadata_list(file_paths, descriptions)
+    download_urls = [config["esa_world_cover_url"], 
+                    "Transformed from esa global dem 90m",
+                    "Transformed from esa global dem 90m",
+                    "Transformed from esa global dem 90m",
+                    config["NA_tree_cover_density_url"],
+                    config["usgs_dem_url"],
+                    config["esa_global_dem_30_xml"],
+                    config["esa_global_dem_90_xml"]]
+    
+    keys = ["esa_world_cover", "NA_slope", "NA_aspect", "NA_geomorphon", "NA_tree_cover_density", "USGS_dem", "ESA_global_dem_30m", "ESA_global_dem_90m"]
+
+    descriptions = [metadata_description[key]["description_hrv"] for key in keys]
+    script_paths = [metadata_description[key]["script_path"] for key in keys]
+    creation_methods = [metadata_description[key]["creation_method"] for key in keys]
+    times_to_make = [metadata_description[key]["time_to_make"] for key in keys]
+    versions = [metadata_description[key]["version"] for key in keys]
+    data_attributes = [metadata_description[key]["attributes"] for key in keys]
+    image_paths = [metadata_description[key]["image_path"] for key in keys]
+
+    metadata_list = create_metadata_list(file_paths, descriptions, script_paths, creation_methods, times_to_make, download_urls, versions, data_attributes, image_paths)
     export_metadata_to_json(metadata_list, config["metadata_list"])
 
 if __name__ == "__main__":
