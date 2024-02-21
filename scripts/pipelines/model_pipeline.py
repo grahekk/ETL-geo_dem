@@ -7,14 +7,20 @@ import tempfile
 
 from .pipeline_download_s3_global import download_tree_cover_density
 from .pipeline_load_localPG import import_to_local_db
-from .pipeline_transform_vrt_gdal import gdal_build_vrt, absolute_file_paths, geofilter_paths_list, create_neighbour_vrt, clip_tile_by_dimensions, gdal_resample, transform_raster, rescale_raster
+from .pipeline_transform_vrt_gdal import extract_values_gdal, gdal_build_vrt, absolute_file_paths, geofilter_paths_list, create_neighbour_vrt, clip_tile_by_dimensions, gdal_resample, transform_raster, rescale_raster, filter_by_geocellid, categorize_aspect
 from .pipeline_transform_qgis_resample import transform_geomorphon_qgis, geomorphon_chunky
 from .pipeline_download_utils_soils import unzip_file
-from .pipeline_transform_sea_level import sea_level_precheck
+from .pipeline_transform_sea_level import sea_level_precheck, basename_withoutext, coastal_flooding_pixel_prediction
 import settings
 
 config = settings.get_config()
+conn_parameters = settings.get_conn_parameters()
 schema = settings.get_schema()
+
+database_name = conn_parameters["database"]
+password = conn_parameters["password"]
+host = conn_parameters["host"]
+username = conn_parameters["user"]
 
 logging.basicConfig(filename=config["log_file_dir"], level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -148,32 +154,35 @@ class DataTransformer:
         # ...
 
     @log_execution_time_and_args
-    def build_vrt(self, output_vrt:str, extent = "standard"):
+    def build_vrt(self, extent = "standard"):
         """
         builds virtual raster from set of files
 
         Args:
             self: references to the data proided in initialized object - in this case input directory
-            output_vrt (str): path to the output virtual raster (in config file)
             extent (str): choose whether geographical extent should or shouldn't be reshaped
             
         Returns:
             Any: The transformed data, vrt built and saved into `output_vrt` path.
         """
         input_dir = self.data
+        output_vrt = self.output
+
         if extent == "standard":
             input_files = absolute_file_paths(input_dir, ".tif") # returns generator object
             files_list = sorted(list(input_files))
+        elif extent == "files_list":
+            files_list = self.data
         else:
-            files_list = geofilter_paths_list(input_dir, coc = "country")
+            files_list = geofilter_paths_list(input_dir, c_name = extent)
         gdal_build_vrt(files_list, output_vrt)
-        self.data = output_vrt
+        self.data = self.output
 
         logging.info(f"Vrt file built in file {output_vrt}")
         return print("Task done!")
 
     @log_execution_time_and_args
-    def merge_vrt(self):
+    def translate_vrt(self):
         """
         Build a file from vrt pointing to tiles with gdal_translate.
         """
@@ -181,7 +190,7 @@ class DataTransformer:
         output_tif = self.output 
         # COMPRESS=LZW or BIGTIFF=YES -co options?
         gdal_translate_cmd = f"gdal_translate -of GTiff -b 1 -co BIGTIFF=YES {input_vrt}  {output_tif}"
-        gdal_translate_cmd = f"gdal_translate -of GTiff -co BIGTIFF=YES -co TILED=YES -co COMPRESS=LZW {input_vrt}  {output_tif}"
+        gdal_translate_cmd = f"gdal_translate -of GTiff -b 1 -co BIGTIFF=YES -co TILED=YES -co COMPRESS=LZW {input_vrt}  {output_tif}"
         # gdal_translate_cmd = f"gdal_merge -of GTiff -b 1 -co BIGTIFF=YES {input_vrt}  {output_tif}"
         os.system(gdal_translate_cmd)
         
@@ -189,6 +198,26 @@ class DataTransformer:
         self.data = output_tif
         logging.info(f"The file was merged into {output_tif}")
         return
+    
+    @log_execution_time_and_args
+    def aspect(self):
+        """
+        Transform given dem .tif or .vrt file to aspect using the gdaldem command from shell. 
+        Convert continuous raster values into 8 discrete categories afterwards using `categorize_slope` function.
+        """
+        # input_raster = config["esa_na_dem_90_vrt"]
+        input_raster = self.data
+        tmp_aspect_path = config["NA_aspect_tmp"]
+        output_category_path = self.output
+        # output_category_path = config["NA_aspect"]
+
+        transform_raster(input_raster, tmp_aspect_path, transform_type="aspect")
+        categorize_aspect(tmp_aspect_path, output_category_path)
+
+        logging.info(f"Aspect was computed into {output_category_path}")
+        self.data = self.output
+        return print(f"task aspect done!")
+
 
     @log_execution_time_and_args
     def slope(self):
@@ -198,16 +227,16 @@ class DataTransformer:
         input_raster = self.data
         slope_raster = config["slope_tmp"]
         transform_raster(input_raster, slope_raster, "slope")
-        logging.info(f"Slope was computed into {slope_raster}")
         
         rescaled_raster = self.output
         rescale_raster(slope_raster, rescaled_raster)
         logging.info(f"Slope was computed into {rescaled_raster}")
+        self.data = self.output
         return
 
     
     @log_execution_time_and_args
-    def geomorphon(self, search:int, skip:int, flat:int, dist:int):
+    def geomorphon(self, search=90, skip=3, flat=5, dist=6):
         """
         Transform given raster dataset using geomorphon algorithm in `transform_geomorphon_qgis`.
 
@@ -218,6 +247,7 @@ class DataTransformer:
         output_file = self.output
         transform_geomorphon_qgis(dem_file, output_file, search, skip, flat, dist)
         logging.info(f"Geomorphon done {output_file} with parameters {search, skip, flat, dist}")
+        self.data = self.output
         return
 
 
@@ -257,22 +287,37 @@ class DataTransformer:
     
     
     @log_execution_time_and_args
-    def coastal_flooding(self):
+    def coastal_flooding_tiles(self):
         """
         method to calculate (coastal) zones under the risk of flooding by the sea from DEM tiles.
         """
-        files_list = self.data
-        file_paths = sea_level_precheck(files_list)
-    
-        low_altitude_files = "low_altitude_dem_files.txt"
-        file_paths_to_write = ", ".join(file_paths) # convert into string
+        files_dir = self.data
+        # files_list = geofilter_paths_list(files_dir, by = "continent", c_name="North America", extent=(-180, 15, 10, 90))
+        files_list = ""
 
-        with open(low_altitude_files, 'w') as file:
-            file.write(file_paths_to_write) # write string to .txt file
-    
-        print("number of dem tiles lower than 10m", len(file_paths))
-        # for file in file_paths:
-        #     sea_levels_loop(file, 10)
+        coastal_dataset = sea_level_precheck(files_list)
+
+        # logging.info(f"number of dem tiles lower than 10m {len(coastal_dataset)}")
+
+        for tile, distance in tqdm(coastal_dataset.items()):
+            coastal_flooding_pixel_prediction(tile, coastal_dataset, coast_distance = distance) 
+
+        logging.info(f"Sea level rise process complete")
+
+
+    @log_execution_time_and_args
+    def coastal_flooding_single(self):
+        """
+        Method to calculate (coastal) zones under the risk of flooding by the sea from DEM file.
+
+        Uses coastal_flooding_pixel_prediction function to predict flooding based on the given DEM file.
+
+        Returns:
+        None
+        """
+        file = self.data
+        coastal_flooding_pixel_prediction(file, 10)
+
         logging.info(f"Sea level rise process complete")
 
 
@@ -288,6 +333,54 @@ class DataTransformer:
             gdal_resample(file, output_dir)
         logging.info(f"Resampling done for {len(self.data)} files")
 
+    @log_execution_time_and_args
+    def filter_tif(self, feature = "Forest", dataset = "Worldcover"):
+        """
+        Filter raster dataset by wanted feature. Wanted feature is marked with 1, and the rest with 0
+
+        Arguments:
+            feature_filtered (str): wanted feature (value) to extract from raster
+        """
+        assert feature in ("Forest", "Shrubland", "Grassland", "Coniferous", "Decidious")
+        features_dict = {"Forest":10,
+                         "Shrubland":20,
+                         "Grassland":30,
+                         "Coniferous": [1,2],
+                         "Decidious": [3,4,5]}
+        
+        feature_filtered = features_dict[feature]
+        output_dir = self.output
+        filter_dataset = self.data
+
+        wc_paths = absolute_file_paths(filter_dataset, ".tif")
+        files_list = filter_by_geocellid(wc_paths, by="continent", c_name = "North America", regex_match=r'_(S|N)(\d+)(W|E)(\d+)_Map.tif')
+
+        for file in tqdm(files_list):
+            output_file = f"{output_dir}/{basename_withoutext(file)}_{feature}.tif"
+            extract_values_gdal(file, output_file, feature_filtered)
+
+        logging.info(f"Filtering {feature_filtered, feature} from files done and saved into {filter_dataset}")
+        return print(f"Files saved into {filter_dataset}")
+    
+
+    def build_cog(self):
+        """
+        Function uses gdal translate utility to pack whole dataset into one, cloud optimized geotiff(cog).
+        Overview (ovr) file is created for faster reading.
+
+        Note:
+            - COG has .tif file extension (file is called COG.tif just for clarity)
+            - COG option doesn't go with TILED = YES option
+            - BIGTIFF=YES option gives good performance for big datasets (bigger than 4gb)
+            - ovr file should be automatically created
+        """
+        input_data = self.data
+        output_cog_tif = self.output
+        cmd = f"gdal_translate -r average -a_nodata -99999 -of COG -co BIGTIFF=YES {input_data} {output_cog_tif}"
+        # cmd = f"gdaladdo {output_cog_tif} 2"
+        os.system(cmd)
+        
+        return
 
 class DataLoader:
     """
@@ -296,13 +389,12 @@ class DataLoader:
     Attributes:
         table_name (str): 
         data (str): File path pointing to the data to be transformed.
-        database_name (str): The name of the database.
-        data_type (str): The type of the data to be loaded (raster(tif) or vector (gpkg, shp)).
+        data_type (str): The type of the data to be loaded (raster(tif) or vector (gpkg, shp)). Must be 'raster' 'geopackage' or 'shapefile
 
     Methods:
         load(): Loads data into the specified database.
     """
-    def __init__(self, table_name:str, data:str, database_name:str, data_type:str):
+    def __init__(self, table_name:str, data:str, data_type:str):
         self.schema = schema
         self.table_name = table_name
         self.data = data

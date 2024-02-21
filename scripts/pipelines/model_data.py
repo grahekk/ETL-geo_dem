@@ -66,13 +66,32 @@ def get_countries_boundaries(country = "United States"):
 
 def get_geocellid(c_name = "United States", by = "country", extent = (-25, 35, 35, 72)):
     """
-    Function to return list of geocellid's of a specified extent or c_name.
-    Geocellids are queried from pg db using geoalchemy.
+    Retrieve a list of geocellids based on specified criteria (extent or c_name) from the ESA grid in a PostgreSQL database.
 
     Parameters:
-        c_name (str): country or continent name to be queried from database, depending on `by` argument
-        by (str): specify a category by which geocellids are filtered
-        coc (str): (coc - Continent or country) either "continent" or "country" - a switch whether to filter by continent or a country
+    - c_name (str): Name of the country or continent to be queried from the database, depending on the 'by' argument.
+    - by (str): Specify the category by which geocellids are filtered ('country', 'continent', or 'extent').
+    - extent (tuple): Tuple specifying the bounding box extent (lon_min, lon_max, lat_min, lat_max) when 'by' is set to 'extent'.
+
+    Returns:
+    list: A list of geocellids based on the specified criteria.
+
+    Example:
+    ```
+    # Retrieve geocellids for the United States by country name
+    geocellids_by_country = get_geocellid(c_name="United States", by="country")
+
+    # Retrieve geocellids for a specified extent, ex. Europe
+    geocellids_by_extent = get_geocellid(by="extent", extent=(-25, 35, 35, 72))
+    ```
+
+    Notes:
+    - The function uses GeoAlchemy for spatial queries on the ESA grid.
+    - The 'by' parameter can be set to 'country', 'continent', or 'extent'.
+    - When 'by' is set to 'country' or 'continent', the 'c_name' parameter specifies the country or continent name.
+    - When 'by' is set to 'extent', the 'extent' parameter specifies the bounding box extent.
+    - The returned list contains geocellids based on the specified criteria.
+    - The session is automatically closed after retrieving the data.
     """
     assert by in ("country", "continent", "extent")
     assert len(extent) == 4
@@ -93,10 +112,42 @@ def get_geocellid(c_name = "United States", by = "country", extent = (-25, 35, 3
 
     elif by == "continent":
         boundary = world_continents_boundaries
-        geocells = session.query(esa_grid).join(boundary, esa_grid.c.geometry.intersects(boundary.c.geom)).filter(boundary.c.continent == c_name).all()
+        geocells = session.query(esa_grid).join(boundary, esa_grid.c.geometry.intersects(boundary.c.geometry)).filter(boundary.c.continent == c_name).all()
         return_data = [i.geocellid for i in geocells]
         
-
     # Close the session
+    session.close()
+    return return_data
+
+
+def get_product_name(geocell_ids_list:list):
+    """
+    Retrieve product names associated with given Geocell IDs from the ESA grid.
+
+    Parameters:
+    - geocell_ids_list (list): List of Geocell IDs for which product names are to be retrieved.
+
+    Returns:
+    list: A list of product names corresponding to the provided Geocell IDs.
+
+    Example:
+    ```
+    geocell_ids_list = ['N00E006', 'N00E007', 'N00E008']
+    product_names = get_product_name(geocell_ids_list)
+    print(product_names)
+    ```
+
+    Notes:
+    - The function utilizes SQLAlchemy for database interaction.
+    - Ensure that the `esa_grid` table is properly defined in your SQLAlchemy setup.
+    - The returned list contains product names associated with the provided Geocell IDs.
+    - The session is automatically closed after retrieving the data.
+    """
+    assert len(geocell_ids_list)>0 and len(geocell_ids_list[0])>5
+
+    session = Session()
+    product_names = session.query(esa_grid).filter(esa_grid.c.geocellid in geocell_ids_list).all()
+    return_data = [i.product30 for i in product_names]
+
     session.close()
     return return_data

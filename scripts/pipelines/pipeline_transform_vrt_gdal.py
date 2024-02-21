@@ -8,6 +8,7 @@ import psycopg2
 import re
 import numpy as np
 from statistics import mean
+import rasterio
 
 # sys.path.append("/home/nikola/4_north_america/scripts")
 
@@ -16,6 +17,7 @@ import settings
 config = settings.get_config()
 conn_parameters = settings.get_conn_parameters()
 from .model_data import get_geocellid
+# from .pipeline_transform_sea_level import basename_withoutext
 
 #import python path from qgis so that gdal from osgeo can be loaded
 sys.path.append('/usr/lib/python3/dist-packages')
@@ -109,29 +111,51 @@ def geocellid_by_country(conn_parameters, country = "United States"):
     return geocell_ids
 
 
-def filter_by_geocellid(links, coc = "continent", continent = "North America", country = "United States"):
+def filter_by_geocellid(files, by:str, c_name = "United States", extent = (-25, 35, 35, 72), regex_match = r'_(S|N)(\d+)_00_(W|E)(\d+)'):
     """
-    Pure function to filter a list of links based on geocell IDs extracted from their filenames and a filter list of geocell IDs.
-    Function uses helper function `filter_by_continents()` that extreacts geocell IDs from pg db.
+    Filter a list of files based on geocell IDs extracted from their filenames and a filter list of geocell IDs.
+    The function uses helper functions to extract geocell IDs from a PostgreSQL database (for continents)
+    or to generate geocell IDs based on a specified country or extent.
 
     Args:
-        links (list): A list of URLs or file paths.
-        coc (str): (coc - Continent or country) either "continent" or "country" - a switch whether to filter by continent or a country
-        continent (str): A name of continent by which to filter extent of geocellid's
+        files (list): A list of URLs or file paths.
+        by (str): Specifies whether to filter by "continent," "country," or "extent."
+        c_name (str, optional): Name of the continent, country, or extent depending on the 'by' parameter. Defaults to "United States."
+        extent (tuple, optional): A tuple specifying the extent (latitude and longitude) for filtering by extent. Defaults to (-25, 35, 35, 72).
+        regex_match (str, optional): Regular expression pattern to extract geocell coordinates from file names. Defaults to r'_(S|N)(\d+)_00_(W|E)(\d+)'.
 
     Returns:
-        list: A filtered list of links that match the geocell IDs specified in the filter list for "North America."
+        list: A filtered list of files that match the geocell IDs specified in the filter list for the specified continent, country, or extent.
     """
-    filtered_links = []
-    if coc == "continent":     
-        filter_list = geocellid_by_continents(conn_parameters, continent = continent)
-    elif coc=="country":
-        filter_list = get_geocellid(country = country)
-    
-    for link in links:
-        file_name = os.path.basename(link)
+
+    if by == "continent":     
+        geocell_filter_list = geocellid_by_continents(conn_parameters, continent = c_name)
+    elif by == "country" or by == "extent":
+        geocell_filter_list = get_geocellid(c_name = c_name, by = by, extent = extent)
+
+    filtered_files = geocell_regex_match(files, geocell_filter_list, regex_match)
+    return filtered_files
+
+
+def geocell_regex_match(files:list, geocell_filter_list:list, regex_match):
+    """
+    Filter a list of files based on geocell coordinates extracted using a regular expression.
+
+    Parameters:
+    - files (list): List of file paths to be filtered.
+    - geocell_filter_list (list): List of geocell coordinates to filter the files.
+    - regex_match (str): Regular expression pattern to extract geocell coordinates from file names.
+
+    Returns:
+    - list: A filtered list of file paths that match the specified geocell coordinates.
+    """
+    filtered_files = []
+    for file in files:
+        file_name = os.path.basename(file)
         # match something like "N23_00_W123"
-        geocell_id_match = re.search(r'_(S|N)(\d+)_00_(W|E)(\d+)', file_name)
+        # regex_match = r'_(S|N)(\d+)_00_(W|E)(\d+)'
+
+        geocell_id_match = re.search(regex_match, file_name)
         if geocell_id_match:
             lat_direction = geocell_id_match.group(1)
             lat_value = geocell_id_match.group(2)
@@ -141,10 +165,34 @@ def filter_by_geocellid(links, coc = "continent", continent = "North America", c
             # Construct the geocell ID based on the extracted values
             geocell_id = f"{lat_direction}{lat_value}{lon_direction}{lon_value}"
 
-            if geocell_id in filter_list:
-                filtered_links.append(link)
-    return filtered_links
+            if geocell_id in geocell_filter_list:
+                filtered_files.append(file)
 
+    return filtered_files
+
+
+def geocellid_from_file_name(file_path:str):
+    """
+    Take file name and extract a geocellid from it, if it matches.
+
+    Args:
+        file_path(str): a path to file
+    """
+    file_name = os.path.basename(file_path)
+    # match something like "N23_00_W123"
+    regex_match = r'_(S|N)(\d+)_00_(W|E)(\d+)'
+
+    geocell_id_match = re.search(regex_match, file_name)
+    if geocell_id_match:
+        lat_direction = geocell_id_match.group(1)
+        lat_value = geocell_id_match.group(2)
+        lon_direction = geocell_id_match.group(3)
+        lon_value = geocell_id_match.group(4)
+            
+        # Construct the geocell ID based on the extracted values
+        geocell_id = f"{lat_direction}{lat_value}{lon_direction}{lon_value}"
+    
+    return geocell_id
 
 def create_vrt(output_vrt:str, input_path:str, vrt_chunks=1, use_prefix = '.tif'):
     """
@@ -256,19 +304,103 @@ def convert_float32_to_int16(input_dir:str, convert_output_type="Int16"):
     print("Conversion and renaming completed.")
 
 
-def geofilter_paths_list(files_dir:str, coc = "continent"):
+def extract_raster_features_rasterio(input_path:str, output_path:str, feature:int):
+    with rasterio.open(input_path) as src:
+        # Read the raster data as a NumPy array
+        data = src.read(1)
+
+        profile = src.profile
+        # Apply the mask to set non-matching pixels to nodata_value
+        filtered_data = np.where(data == feature, 1, profile["nodata"])
+
+        # Get metadata from the source raster
+        metadata = src.meta.copy()
+
+    metadata.update(
+        dtype=rasterio.uint8,  # Set the data type as needed
+        count=1  # Number of bands
+    )
+
+    # Create a new raster TIF file and write the filtered data
+    with rasterio.open(output_path, 'w', **metadata) as dst:
+        dst.write(filtered_data, 1)
+
+
+def extract_values_gdal(input_path:str, output_path:str, feature:int):
+    """
+    Extracts and keeps all values that are equal to `feature` from an input raster TIF file.
+
+    Parameters:
+    - input_path (str): The file path to the input raster TIF file.
+    - output_path (str): The file path to the output raster TIF file containing extracted values.
+    - feature (int): Value to be filtered out of raster .
+
+    Raises:
+    - Exception: If unable to open the input raster file or create the output raster file.
+
+    Notes:
+    - The function reads the input raster, extracts values equal to 10, and sets all other values to 0.
+    - The output raster will have the same geotransform and projection as the input raster.
+
+    Example:
+    >>> input_raster_path = "input_raster.tif"
+    >>> output_raster_path = "output_extracted_raster.tif"
+    >>> extract_values(input_raster_path, output_raster_path)
+    """
+    # Open the input raster file
+    input_ds = gdal.Open(input_path)
+
+    if input_ds is None:
+        raise Exception(f"Unable to open input raster file: {input_path}")
+
+    # Get raster band
+    band = input_ds.GetRasterBand(1)
+
+    # Read the raster data
+    data = band.ReadAsArray()
+    # extract
+    extracted_data = data.copy()
+    extracted_data[data != feature] = 0  # Set values not equal to feature to 0
+    output_ds = gdal.GetDriverByName('GTiff').Create(output_path, input_ds.RasterXSize, input_ds.RasterYSize, 1, band.DataType, options=['COMPRESS=DEFLATE', 'PREDICTOR=2', 'TILED=YES'])
+
+    if output_ds is None:
+        raise Exception(f"Unable to create output raster file: {output_path}")
+
+    # Set 0 as nodata value
+    output_band = output_ds.GetRasterBand(1)
+    output_band.SetNoDataValue(0)
+
+    # Set the geotransform and projection from the input raster
+    output_ds.SetGeoTransform(input_ds.GetGeoTransform())
+    output_ds.SetProjection(input_ds.GetProjection())
+
+    # Write the extracted data to the new raster
+    output_band = output_ds.GetRasterBand(1)
+    output_band.WriteArray(extracted_data)
+
+    # Close the datasets
+    input_ds = None
+    output_ds = None
+
+
+def geofilter_paths_list(files_dir:str, by = "continent", c_name = "Europe", extent = (-25, 35, 35, 72)):
     """
     Filter and return a sorted list of file paths from a directory based on geocell IDs.
 
     Args:
         files_dir (str): The directory containing the files to filter.
-        coc (str): (coc - Continent or country) either "continent" or "country" - a switch whether to filter by continent or a country
+        by (str): (coc - Continent or country) either "continent" or "country" - a switch whether to filter by continent or a country
+        c_name (str): a name of continent or a country to be queried
+        extent (tuple): tuple of coordiantes (min_x, min_y, max_x, max_y)
 
     Returns:
         list: A sorted list of file paths filtered based on geocell IDs.
     """
+    assert by in ("country", "continent", "extent")
+    assert len(extent) == 4
+
     input_files = absolute_file_paths(files_dir, ".tif") # returns generator object
-    filtered_files = filter_by_geocellid(input_files, coc = coc, country = "United States")
+    filtered_files = filter_by_geocellid(input_files, by = by, c_name = c_name, extent=extent)
     files_list = sorted(list(filtered_files))
     return files_list
 
@@ -289,7 +421,6 @@ def transform_raster(input_raster:str, output_raster:str, transform_type="slope"
         raise ValueError("Invalid transform_type. Use 'slope' or 'aspect'.")
     try:
         subprocess.run(command, shell=True, check=True)
-        print(f"{transform_type} done for {output_raster}!")
     except subprocess.CalledProcessError as e:
         print(f"Error transforming raster: {e}")
 
@@ -389,6 +520,51 @@ def categorize_aspect(input_aspect_path, output_category_path, chunk_size=(1000,
     output_ds = None
 
 
+def rescale_raster(input_raster:str, output_path:str, band=1, new_min=0, new_max=90, nodata=None):
+    """
+    Rescales pixel values in a raster layer and writes the result to a new raster file.
+
+    Parameters:
+        input_raster (str): Path to the input raster file.
+        output_path (str): Path to the output raster file.
+        band (int, optional): The band index to rescale. Default is 1.
+        new_min (float, optional): The minimum value for rescaling. Default is 0.
+        new_max (float, optional): The maximum value for rescaling. Default is 90.
+        nodata (float, optional): The nodata value to be set in the output raster. Default is None.
+
+    Returns:
+        None: The function writes the rescaled raster to the specified output path.
+    """
+    
+    # Open the raster dataset, read band as np array
+    raster_dataset = gdal.Open(input_raster, gdal.GA_ReadOnly)
+    band_data = raster_dataset.GetRasterBand(band)
+    data_array = band_data.ReadAsArray()
+
+    # Apply the rescaling
+    scaled_data = np.clip((data_array - np.nanmin(data_array)) / (np.nanmax(data_array) - np.nanmin(data_array)) * (new_max - new_min) + new_min, new_min, new_max)
+
+    # Set nodata values
+    if nodata is not None:
+        scaled_data[np.isnan(data_array)] = nodata
+
+    # Create a new raster dataset for the scaled data
+    new_dataset = gdal.GetDriverByName('GTiff').Create(output_path, raster_dataset.RasterXSize, raster_dataset.RasterYSize, 1, band_data.DataType)
+    new_dataset.SetGeoTransform(raster_dataset.GetGeoTransform())
+    new_dataset.SetProjection(raster_dataset.GetProjection())
+
+    # Write the scaled data to the new raster dataset
+    new_dataset.GetRasterBand(1).WriteArray(scaled_data)
+
+    # Set nodata values in the new raster dataset
+    if nodata is not None:
+        new_dataset.GetRasterBand(1).SetNoDataValue(nodata)
+
+    # Close the datasets
+    raster_dataset = None
+    new_dataset = None
+
+
 def gdal_build_vrt(files_list:list, output_vrt:str, resample_method = "bilinear"):
     """
     Create a Virtual Raster (VRT) dataset from a list of raster files.
@@ -411,11 +587,9 @@ def gdal_build_vrt(files_list:list, output_vrt:str, resample_method = "bilinear"
     """
     assert resample_method in ["cubic", "average", "bilinear", "nearest"], "Invalid resample_method"
 
-    start_time = time.time()
-    vrt_options = gdal.BuildVRTOptions(resampleAlg=resample_method, addAlpha=True, hideNodata=False)
+    vrt_options = gdal.BuildVRTOptions(resampleAlg=resample_method, addAlpha=False, hideNodata=True)
     my_vrt = gdal.BuildVRT(output_vrt, files_list, options=vrt_options)
     my_vrt = None
-    fun_time = round(time.time()-start_time, 2)
     # return print(f"Gdal building vrt done for file: {output_vrt} in time: {datetime.timedelta(seconds=fun_time)}")
 
 
@@ -591,6 +765,16 @@ def clip_layers_by_attribute(input_file, output_file, attribute_field='sea_level
     input_ds = None
     output_ds = None
 
+def gdal_resample(input_tif:str, output_dir:str, resolution = 0.01, crs = 4326):
+    """
+    function for resampling/reprojecting dem file using gdal warp.
+    """
+    output_tif = os.path.join(output_dir, basename_withoutext(input_tif)+"_resampled.tif")
+    warp_cmd = f"gdalwarp -overwrite -tr {resolution} {resolution} -r bilinear -of GTiff {input_tif} {output_tif}"
+    os.system(warp_cmd)
+    return 
+
+# flows
 
 def create_vrt_ovr_flow(input_raster_directory:str, output_vrt:str, vrt_chunks=1, use_prefix='.tif'):
     """
