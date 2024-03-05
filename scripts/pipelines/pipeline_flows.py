@@ -7,8 +7,9 @@ import multiprocessing
 import tempfile
 
 from .pipeline_load_localPG import import_to_local_db
-from .pipeline_transform_vrt_gdal import geofilter_paths_list, gdal_build_vrt, absolute_file_paths, transform_raster, categorize_aspect, create_vrt_ovr_flow, split_list
+from .pipeline_transform_vrt_gdal import geofilter_paths_list, gdal_build_vrt, absolute_file_paths, transform_raster, categorize_aspect, create_vrt_ovr_flow, split_list, geocell_regex_match
 from . import model_pipeline
+from .pipeline_transform_sea_level import sea_level_precheck
 
 sys.path.append("/home/nikola/4_north_america/scripts/")
 import settings
@@ -95,8 +96,8 @@ def transform_ESA_NA_dem_90_vrt_flow():
     """
     files_dir = config["esa_global_dem_90_dir"]
     output_vrt = config["esa_na_dem_90_vrt"]
-    esa_NA_dem_vrt_90_transformer = model_pipeline.DataTransformer(files_dir)
-    return esa_NA_dem_vrt_90_transformer.build_vrt(output_vrt, extent="North American")
+    esa_NA_dem_vrt_90_transformer = model_pipeline.DataTransformer(files_dir, output_vrt)
+    return esa_NA_dem_vrt_90_transformer.build_vrt(extent="North America")
 
 
 def transform_ESA_NA_dem_30_vrt_flow():
@@ -126,8 +127,8 @@ def transform_ESA_world_cover_vrt_flow():
     """
     esa_world_cover_dir = config["esa_world_cover_dir"]
     esa_world_cover_vrt = config["esa_world_cover_vrt"]
-    esa_world_cover_transformer = model_pipeline.DataTransformer(esa_world_cover_dir)
-    return esa_world_cover_transformer.build_vrt(esa_world_cover_vrt)
+    esa_world_cover_transformer = model_pipeline.DataTransformer(esa_world_cover_dir, esa_world_cover_vrt)
+    return esa_world_cover_transformer.build_vrt()
 
 
 # slope, aspect
@@ -279,8 +280,8 @@ def transform_tree_cover_density_vrt_flow():
     """
     input_dir = config["tree_cover_density_dir"]
     output_vrt = config["tree_cover_density_vrt"]
-    TCD_transformer = model_pipeline.DataTransformer(input_dir)
-    TCD_transformer.build_vrt(output_vrt)
+    TCD_transformer = model_pipeline.DataTransformer(input_dir, output_vrt)
+    TCD_transformer.build_vrt()
     
 
 def transform_geomorphon_vrt_flow():
@@ -305,12 +306,103 @@ def transform_coastal_flooding_vrt():
     gdal_build_vrt(tiles, output_vrt)
     return
 
-def coastal_flooding_flow():
+def coastal_flooding_90m_pixels_flow():
     """
-    Create predicted areas where coastal flooding could occur using DEM tiles.
+    Create predicted areas where coastal flooding could occur using DEM 90m tiles.
     """
-    os.makedirs(config["sea_level_rise_tmp"], exist_ok=True)
-    files_list = geofilter_paths_list(config["esa_global_dem_30_dir"])     
+    coastal_flooding_transformer = model_pipeline.DataTransformer(config["esa_global_dem_90_dir"], config["data_folder"])
+    coastal_flooding_transformer.coastal_flooding_tiles()
+    return
+
+def coastal_flooding_90m_pixels_multiprocessing_flow():
+    """
+    The same function as `coastal_flooding_90m_pixels_flow`, but with multiprocessing. 
+    Create predicted areas where coastal flooding could occur using DEM 90m tiles.
+    """
+    coastal_flooding_transformer = model_pipeline.DataTransformer(config["esa_global_dem_90_dir"], config["data_folder"])
+    coastal_flooding_transformer.coastal_flooding_tiles_multiprocessing()
+    return
+
+def coastal_flooding_90m_Europe_flow():
+    """
+    Create predicted areas where coastal flooding could occur using DEM 90m tiles.
+    """
+    coastal_flooding_transformer = model_pipeline.DataTransformer(config["esa_global_dem_90_dir"], config["coastal_flooding_EU_90m"])
+    for i in range(0,2):
+        coastal_flooding_transformer.coastal_flooding_tiles()
+    return
+
+def tree_cover_filter_flow():
+    """
+    flow for filtering forests out of world cover dataset
+    """
+    tree_cover_dir = config["NA_tree_cover_10m_dir"]
+    os.makedirs(tree_cover_dir, exist_ok=True)
+    filter_dataset = config["esa_world_cover_dir"]
+
+    filter_transformer = model_pipeline.DataTransformer(filter_dataset, tree_cover_dir)
+    return filter_transformer.filter_tif(feature = "Forest")
+
+def shrubland_filter_flow():
+    """
+    flow for filtering shrubland out of world cover dataset
+    """
+    shrubland_dir = config["NA_shrubs_10m_dir"]
+    os.makedirs(shrubland_dir, exist_ok=True)
+    filter_dataset = config["esa_world_cover_dir"]
+
+    filter_transformer = model_pipeline.DataTransformer(filter_dataset, shrubland_dir)
+    return filter_transformer.filter_tif(feature = "Shrubland")
+
+def grassland_filter_flow():
+    """
+    flow for filtering shrubland out of world cover dataset
+    """
+    grassland_dir = config["NA_grassland_10m_dir"]
+    os.makedirs(grassland_dir, exist_ok=True)
+    filter_dataset = config["esa_world_cover_dir"]
+
+    filter_transformer = model_pipeline.DataTransformer(filter_dataset, grassland_dir)
+    return filter_transformer.filter_tif(feature = "Grassland")
+
+def hawaii_repair_flow():
+    """
+    flow for adding geomorphon, slope and aspect data for Hawaii
+    """
+    hawaii_geocells = config["NA_hawai_geocells"].split(", ")
+
+    # first vrt
+    # then aspect, slope, geomorphon
+    # then new geomorphon vrt
+    # then new geomorphon out of geomorphon vrt
+    # then merge aspect, merge slope
+    esa_global_dem_90_dir = config["esa_global_dem_90_dir"]
+    files_list = absolute_file_paths(esa_global_dem_90_dir, extension='.tif')
+    hawaii_files = geocell_regex_match(files=files_list, regex_match = r'_(S|N)(\d+)_00_(W|E)(\d+)', geocell_filter_list=hawaii_geocells)
+    print(hawaii_files)
+
+    hawai_vrt = config["hawaii_vrt"]
+    hawaii = model_pipeline.DataTransformer(hawaii_files, hawai_vrt)
+    hawaii.build_vrt(extent="files_list")
+    print("vrt done")
+    hawaii.output = config["hawaii_aspect"]
+    hawaii.aspect()
+    print("aspect done")
     
-    coastal_flooding_transformer = model_pipeline.DataTransformer(files_list)
-    return coastal_flooding_transformer.coastal_flooding()    
+    hawaii.data = hawai_vrt
+    hawaii.output = config["hawaii_slope"]
+    hawaii.slope()
+    print("Slope done")
+
+    hawaii.data = hawai_vrt
+    hawaii.output = config["hawaii_geomorphon"]
+    hawaii.geomorphon()
+    print("Geomorphon done")
+
+def load_water_bodies_data_to_mnt():
+    data_loader = model_pipeline.DataLoader("water_bodies_esri", config["world_water_bodies_esri_shp"], "shapefile")
+    data_loader.load_local()
+
+def load_NA_coastal_flooding_to_mnt():
+    data_loader = model_pipeline.DataLoader(config["NA_coastal_flooding_90m_table"], config["NA_coastal_flooding_90"], "shapefile")
+    data_loader.load_local()    
