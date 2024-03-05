@@ -10,6 +10,7 @@ sys.path.append("/home/nikola/4_north_america/GeoDataPump/scripts/")
 import settings
 database_url = settings.get_database_url()
 schema = settings.get_schema()
+config = settings.get_config()
 
 engine = create_engine(database_url)
 metadata_obj = MetaData(schema=schema)
@@ -36,6 +37,11 @@ world_continents_boundaries = Table("world_continents_boundaries",
 esa_grid = Table("esa_global_dem_grid", 
                         metadata_obj,
                         Column("geometry", Geometry('POLYGON')),
+                        autoload_with = engine)
+
+na_coastal_flooding_90 = Table(config["NA_coastal_flooding_90m_table"], 
+                        metadata_obj,
+                        Column("geom", Geometry('POLYGON')),
                         autoload_with = engine)
 
 
@@ -151,3 +157,21 @@ def get_product_name(geocell_ids_list:list):
 
     session.close()
     return return_data
+
+def get_na_coastal_flooding_90(lat:float, lon:float):
+    """
+    Query the information from `na_coastal_flooding_90` table by given point
+
+    Arguments:
+        lat(float): latitude
+        lon(float): longitude 
+    """
+    session = Session()
+    point = func.ST_SetSrid(func.ST_MakePoint(lon, lat), 4326)
+    sea_level = session.query(na_coastal_flooding_90).filter(func.ST_Intersects(na_coastal_flooding_90.c.geom, point)).first()
+    session.close()
+    try:
+        result = sea_level.level
+    except:
+        result = None
+    return result
