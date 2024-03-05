@@ -10,6 +10,8 @@ import warnings
 import fiona
 import rasterio
 from rasterio.features import geometry_mask
+from skimage import measure
+
 import rasterio.mask
 import scipy
 import geopandas as gpd
@@ -21,8 +23,10 @@ import multiprocessing
 import concurrent.futures
 from shapely.ops import unary_union
 from sqlalchemy import create_engine
+import shutil
+import logging
 
-from .pipeline_transform_vrt_gdal import gdal_build_vrt, geocell_regex_match, geocellid_from_file_name
+from .pipeline_transform_vrt_gdal import gdal_build_vrt, geocell_regex_match, geocellid_from_file_name, geofilter_paths_list
 from .model_data import get_geocellid, get_product_name
 
 # Define the database connection parameters
@@ -51,6 +55,9 @@ data_folder = config["data_folder"]
 sys.path.append("/usr/lib/python3/dist-packages")
 from osgeo import gdal, ogr
 
+# warnings.filterwarnings("ignore", message="Normalized/laundered field name:", category=UserWarning)
+# warnings.filterwarnings("ignore", message="Normalized/laundered field name:", category=UserWarning, module="geopandas")
+# warnings.simplefilter(action="ignore", category=UserWarning)
 
 def sea_level_with_database():
     # Establish a connection to the database
@@ -70,18 +77,6 @@ def sea_level_with_database():
     # Close the database connection
     cursor.close()
     connection.close()
-
-
-def sea_level_split():
-    for sea_level in tqdm(range(1, 10, 1)):
-        output_file = os.path.join(
-            config["sea_level_rise_dir"], f"sea_level_output_{sea_level}.gpkg"
-        )
-        ogr_table_args = f"ogr2ogr -f GPKG {output_file} PG:'dbname=mnt tables=sea_level_rise_{sea_level}'"
-        process = subprocess.Popen(
-            stdin=[ogr_table_args], stdout=subprocess.PIPE, shell=True
-        ).communicate()
-        print(process)
 
 
 def create_contours(input_dem: str, output_contour: str, option: str, interval=1):
@@ -623,7 +618,10 @@ def clip_vector_dataset(
     if output_ds is None:
         raise Exception(f"Exception: Failed to create output vector dataset at {output_vector_path}")
 
-    output_layer = output_ds.CreateLayer("clipped", geom_type=ogr.wkbUnknown)
+    # get spatial ref, and set output layer
+    input_layer = input_ds.GetLayer()
+    input_srs = input_layer.GetSpatialRef()
+    output_layer = output_ds.CreateLayer("clipped", geom_type=ogr.wkbUnknown, srs=input_srs)
 
     if "contours" in input_vector_path:
         # Add "height" field to the output layer
@@ -639,7 +637,6 @@ def clip_vector_dataset(
         flood_field = ogr.FieldDefn("level", ogr.OFTInteger)
         output_layer.CreateField(flood_field)
 
-    input_layer = input_ds.GetLayer()
 
     for feature in input_layer:
         input_geom = feature.GetGeometryRef()
@@ -961,8 +958,32 @@ def gdal_extract_features_by_location(input_file, intersection_file, output_file
     print(f"Features selected in the {input_file}!")
     return output_file
 
+def merge_shapefiles(shapefile1_path, shapefile2_path, output_path, identifier_field):
+    """
+    Merge two shapefiles, removing duplicate features based on a specified identifier field.
 
-def gpd_extract_features_by_location(input_shapefile:str, reference_shapefile:str, output_shapefile:str, mode = "intersects"):
+    Parameters:
+    - shapefile1_path (str): Path to the first shapefile.
+    - shapefile2_path (str): Path to the second shapefile.
+    - output_path (str): Path to save the merged shapefile.
+    - identifier_field (str): Field used to identify and remove duplicate features.
+
+    """
+    # Read shapefiles into GeoDataFrames
+    gdf1 = gpd.read_file(shapefile1_path)
+    gdf2 = gpd.read_file(shapefile2_path)
+
+    # Merge GeoDataFrames
+    merged_gdf = gpd.GeoDataFrame(pd.concat([gdf1, gdf2], ignore_index=True), crs=gdf1.crs)
+
+    # Drop duplicate features based on the identifier field
+    merged_gdf.drop_duplicates(subset=identifier_field, keep='first', inplace=True)
+
+    # Save the merged GeoDataFrame to a new shapefile
+    merged_gdf.to_file(output_path)
+
+
+def gpd_extract_features_by_location(input_shapefile:str, reference_shapefile:str, output_shapefile:str, condition = None, mode = "intersects", join = 'inner'):
     """
     function that uses geopandas to select and save features in input file by location of reference shapefile.
 
@@ -973,15 +994,41 @@ def gpd_extract_features_by_location(input_shapefile:str, reference_shapefile:st
     """
     # Read the input and reference shapefiles
     input_gdf = gpd.read_file(input_shapefile)
-    reference_gdf = gpd.read_postgis(reference_shapefile, engine, geom_col="geom")
+    if "SELECT" in reference_shapefile:
+        reference_gdf = gpd.read_postgis(reference_shapefile, engine, geom_col="geom")
+        reference_gdf.to_file(input_shapefile.replace(".shp", "_queried_coastlines.shp"))
+        # print(f"reference_gdf saved temporarily")
+    else:
+        reference_gdf = gpd.read_file(reference_shapefile)
+        # subset condition is optional (should be)
+        if isinstance(condition, int):
+            subset_condition = reference_gdf['level'] <= condition
+            reference_gdf = reference_gdf[subset_condition]
 
-    # Do the spatial join to identify intersecting features
-    joined_gdf = gpd.sjoin(input_gdf, reference_gdf, how="inner", predicate=mode)
+    try:
+        joined_gdf = gpd.sjoin(input_gdf, reference_gdf, how=join, predicate=mode)
+    except:
+        input_gdf = input_gdf[['level_left', 'geometry']]
+        input_gdf = input_gdf.rename(columns={'level_left': 'level'})
+        try:
+            reference_gdf = reference_gdf[['level_left', 'geometry']]
+            reference_gdf = reference_gdf.rename(columns={'level_left': 'level'})
+        except:
+            pass
+
+        joined_gdf = gpd.sjoin(input_gdf, reference_gdf, how=join, predicate=mode)
+
+    joined_gdf = joined_gdf.drop_duplicates(["geometry"])
 
     with warnings.catch_warnings():
-        warnings.simplefilter(action="ignore", category=UserWarning)
+        warnings.simplefilter(action="ignore")
         # Save the selected features to a new shapefile
-        joined_gdf.to_file(output_shapefile)
+        try:
+            joined_gdf.to_file(output_shapefile)
+        except:
+            duplicated_columns = joined_gdf.columns[joined_gdf.columns.duplicated()]
+            joined_gdf = joined_gdf.drop(columns=duplicated_columns)
+            joined_gdf.to_file(output_shapefile)
 
 
 def extract_intersecting_features(target_shapefile, other_shapefiles):
@@ -1089,33 +1136,6 @@ def extract_pixels_by_mask(input_raster: str, mask_input: str, output_raster: st
             invert=False,
         )
 
-        # # Read the vector mask using gdal/ogr
-        # mask_ds = gdal.OpenEx(mask_input, gdal.OF_VECTOR)
-        # mask_layer = mask_ds.GetLayer()
-
-        # # Create a temporary in-memory raster for the mask
-        # mem_driver = gdal.GetDriverByName('MEM')
-        # mem_raster = mem_driver.Create('', raster_data.shape[1], raster_data.shape[0], 1, gdal.GDT_Byte)
-
-        # # Set the geotransform and projection of the temporary raster
-        # src_transform = src.transform.to_gdal()
-
-        # # Ensure that src_transform is a tuple, and the size
-        # if not isinstance(src_transform, tuple):
-        #     src_transform = src_transform.to_gdal()
-
-        # if len(src_transform) != 6:
-        #     raise ValueError("src_transform should have 6 elements.")
-
-        # mem_raster.SetGeoTransform(src_transform)
-        # mem_raster.SetProjection(src.crs.to_wkt())
-
-        # # Rasterize the vector mask into the temporary raster
-        # gdal.RasterizeLayer(mem_raster, [1], mask_layer, burn_values=[1])
-
-        # # Read the mask from the temporary raster
-        # mask = mem_raster.GetRasterBand(1).ReadAsArray()
-
         if mode == "clip":
             features_values = np.logical_and(raster_data, mask)
 
@@ -1128,6 +1148,8 @@ def extract_pixels_by_mask(input_raster: str, mask_input: str, output_raster: st
         elif mode == "invert":
             features_values = np.logical_and(raster_data, mask)
             features_values = np.invert(features_values)
+            if level > 0:
+                features_values = np.where(features_values, level+1, 0)
 
     with rasterio.open(output_raster, "w", **profile) as dst:
         dst.write(features_values, 1)
@@ -1471,7 +1493,7 @@ def give_tmp_file_name(input_file: str, level: int, name: str):
     return f"{basename_withoutext(input_file)}_{name}_{level}.shp"
 
 
-def collect_neighbouring_coastal_flood_files(central_file:str, neighbours = 1, include_central = False):
+def collect_neighbouring_coastal_flood_files(central_file:str, neighbours = 1, include_central = False, coastal_flood_sufix = "coastal_flood"):
     """
     Collects the paths of neighboring coastal flood files given the central file.
 
@@ -1485,8 +1507,8 @@ def collect_neighbouring_coastal_flood_files(central_file:str, neighbours = 1, i
             The order of files in the list corresponds to the surrounding tiles
             (e.g., top-left, top-center, top-right, left, center, right, bottom-left, bottom-center, bottom-right).
     """
-    if neighbours == 0: 
-        return [central_file]
+    # if neighbours == 0: 
+    #     return [central_file]
     
     if include_central == True:
         neighbour_files = [central_file]
@@ -1505,13 +1527,22 @@ def collect_neighbouring_coastal_flood_files(central_file:str, neighbours = 1, i
         lon_value = int(geocell_id_match.group(4))
 
         # find neighbour files
-        for i in range(lon_value - (neighbours), lon_value + (neighbours + 1)):
-            for j in range(lat_value - (neighbours), lat_value + (neighbours + 1)):
+        for i in range(lon_value - 1, lon_value + 2):
+            for j in range(lat_value - 1, lat_value + 2):
                 # Construct the file name for each surrounding tile
-                tile_name = f"Copernicus_DSM_30_{lat_direction}{j:02d}_00_{lon_direction}{i:03d}_00_DEM.tif"
-                tile_path = os.path.join(tile_folder, tile_name)
-                if os.path.exists(tile_path):
-                    neighbour_files.append(tile_path)
+                # england edge case is: W001
+                if lon_direction == "W" and lon_value == 1:
+                    for k in ["W", "E"]:
+                        tile_name = f"Copernicus_DSM_30_{lat_direction}{j:02d}_00_{k}{i:03d}_00_DEM_{coastal_flood_sufix}.shp"
+                        tile_path = os.path.join(tile_folder, tile_name)
+                        if os.path.exists(tile_path) and tile_path != central_file:
+                            neighbour_files.append(tile_path)
+
+                else:
+                    tile_name = f"Copernicus_DSM_30_{lat_direction}{j:02d}_00_{lon_direction}{i:03d}_00_DEM_{coastal_flood_sufix}.shp"
+                    tile_path = os.path.join(tile_folder, tile_name)
+                    if os.path.exists(tile_path) and tile_path != central_file:
+                        neighbour_files.append(tile_path)
 
     return neighbour_files
 
@@ -1544,7 +1575,7 @@ def build_expanded_tif(input_file, coastal_dataset, tmpdirname):
     return expanded_tif
 
 
-def coastal_flooding_pixel_prediction(input_file: str, coastal_dataset, sea_level = 10, coast_distance = 0):
+def coastal_flooding_pixel_prediction(input_file: str, sea_level = 10, coast_distance = 0, skip_if_exists = False):
     """
     Main function that calculates potential rising sea levels from DEM file based on pixel selection principle.
     It loops over levels up to given maximum level in meters (Loop imitates flooding).
@@ -1568,37 +1599,62 @@ def coastal_flooding_pixel_prediction(input_file: str, coastal_dataset, sea_leve
     """
     sea_level = sea_level + 1  # otherwise 10 will not be selected because of range()
     original_file = input_file
-    output_file = f"{data_folder}/{basename_withoutext(original_file)}_coastal_flood.shp"
-    neighbouring_coastal_files = collect_neighbouring_coastal_flood_files(output_file)
+    data_folder = config["coastal_flooding_EU_90m"]
 
-    meta_neighbours_number = len(neighbouring_coastal_files)  # logging metadata
+    output_file = f"{data_folder}/{basename_withoutext(original_file)}_coastal_flood.shp"
+
+    if skip_if_exists == True:
+        if os.path.exists(output_file):
+            logging.info(f"File {output_file} existed, so it was skipped")
+            return
+        
+    neighbouring_coastal_files = collect_neighbouring_coastal_flood_files(output_file, neighbours=coast_distance)
     
-    _, lat, _, lon = extract_coordinates_from_tile_name(input_file)
+    lat_direction, lat, lon_direction, lon = extract_coordinates_from_tile_name(input_file)
     lat = int(lat)
     lon = int(lon)
 
     with tempfile.TemporaryDirectory() as tmpdirname:
         # build_expanded_tif(input_file, coastal_dataset, tmpdirname)
 
+        # build neighbouring vector layer
+        neighbours_str = " ".join(neighbouring_coastal_files)
+        neighbours_shp = f"{tmpdirname}/{basename_withoutext(original_file)}_neighbours.shp"
+
+        # merge neighbouring shapefiles, -single option is for merging layers into a single shp
+        merge_neighbours_cmd = f"ogrmerge.py -o {neighbours_shp} {neighbours_str} -single -progress "
+        os.system(merge_neighbours_cmd)
+
+        # clip neighbours, only tiny bit of polygons is needed
+        neighbours_shp_clipped = neighbours_shp.replace(".shp", "_clipped.shp")
+        try:
+            if lat_direction == "N" and lon_direction == "W": # Americas
+                clip_vector_dataset(neighbours_shp, neighbours_shp_clipped, -lon+1.001, lat-0.001, -lon - 0.001, lat + 1.001)
+            elif lat_direction == "N" and lon_direction == "E": # Europe
+                clip_vector_dataset(neighbours_shp, neighbours_shp_clipped, lon+1.001, lat-0.001, lon - 0.001, lat + 1.001)
+
+        except Exception:
+            neighbours_shp_clipped = None
+
         # pre select
         # we change input file to the expanded_tif - or leave it with gdal_select pixels(input_file)
         preselected_file = (f"{tmpdirname}/{basename_withoutext(input_file)}_preselect.tif")
-        input_file = gdal_select_pixels(input_file, preselected_file, sea_level, replace_pixels=False)
+        gdal_select_pixels(input_file, preselected_file, sea_level, replace_pixels=False)
 
         sea_levels_simulation = (f"{tmpdirname}/{basename_withoutext(input_file)}_sea_levels_simulation.tif")
 
         for level in range(0, sea_level, 1):
             # selecting by height
             selected_sea_level_file = (f"{tmpdirname}/{basename_withoutext(input_file)}_sea_level_{level}.tif")
-            selected_sea_level = gdal_select_pixels(input_file, selected_sea_level_file, level)
-            # pixel connectivity overcome
-            polygonized_pixels_file = (f"{tmpdirname}/{basename_withoutext(input_file)}_sea_level_{level}.shp")
-            polygonized_pixels = polygonize_raster(selected_sea_level, polygonized_pixels_file)
+            gdal_select_pixels(preselected_file, selected_sea_level_file, level)
+            # pixel connectivity
+            polygonized_pixels_file = (f"{tmpdirname}/{basename_withoutext(input_file)}_polygonized_{level}.shp")
+            polygonize_raster(selected_sea_level_file, polygonized_pixels_file)
 
             # spatial relation with sea or spatial relation with flood
             intersected_features_file = f"{tmpdirname}/{basename_withoutext(input_file)}_sea_level_intersected_{level}.shp"
             
-            if coast_distance == 0:
+            if level == 0 and coast_distance == 0:
                 geocellid = geocellid_from_file_name(input_file)
                 coastlines_query = f"""
                 SELECT DISTINCT wc.geom as geom FROM osm.world_coastlines wc
@@ -1607,13 +1663,45 @@ def coastal_flooding_pixel_prediction(input_file: str, coastal_dataset, sea_leve
                 WHERE egdg.geocellid = '{geocellid}'
                 """
                 gpd_extract_features_by_location(polygonized_pixels_file, coastlines_query, intersected_features_file)
+
             else:
-                intersected_features_file = polygonized_pixels_file
+                try:
+                    gpd_extract_features_by_location(polygonized_pixels_file, 
+                                        reference_file, 
+                                        intersected_features_file,
+                                        condition = "rename")
+                except UnboundLocalError: # if reference file is not yet initialised  (level is 0)
+                    if neighbours_shp_clipped == None:
+                        return
+                    else:
+                        gpd_extract_features_by_location(polygonized_pixels_file, 
+                                                    neighbours_shp_clipped, 
+                                                    intersected_features_file, 
+                                                    condition = level, 
+                                                    mode = "intersects", 
+                                                    join = "inner")
+                        neighbours_checked = True
+
 
             # intersection with neighbouring flooding files
             if neighbouring_coastal_files:
-                for neighbour_file in neighbouring_coastal_files:
-                    gpd_extract_features_by_location(intersected_features_file, neighbour_file, intersected_features_file, mode = "union")
+                try:
+                    if neighbours_checked == True:
+                        del neighbours_checked
+
+                except UnboundLocalError: # if neighbours haven't yet been tested
+                    intersected_neighbours_file = f"{tmpdirname}/{basename_withoutext(input_file)}_neighbours_intersected_{level}.shp"
+                    gpd_extract_features_by_location(polygonized_pixels_file, 
+                                                    neighbours_shp_clipped, 
+                                                    intersected_neighbours_file, 
+                                                    condition = level, 
+                                                    mode = "intersects", 
+                                                    join = "inner")
+                    if has_empty_geometries(intersected_neighbours_file):
+                        pass
+                    else:
+                        # merge two intersections
+                        merge_shapefiles(intersected_features_file, intersected_neighbours_file, intersected_features_file, "geometry")
 
             # pixel connectivity and intersection overcome - clip the raster by mask
             intersected_tif = f"{tmpdirname}/{basename_withoutext(input_file)}_sea_level_intersected_{level}.tif"
@@ -1625,22 +1713,27 @@ def coastal_flooding_pixel_prediction(input_file: str, coastal_dataset, sea_leve
                     mode="clip",
                     level=level,
                 )
-            except ValueError as e: # if layer is empty, this error is raised
+            except ValueError as e: # if layer is empty (no selection), this error is raised
                 print(f"The extract_pixels_by_mask() for level: {level} of a {basename_withoutext(original_file)} couldn't be processed because of {e}")
-                return
+                reference_file = intersected_features_file
+                continue
 
             # this part calculates the difference
-            if level > 0:
+            if level > 0 and not has_empty_geometries(reference_file):
                 # difference with rasters
                 difference_tif = f"{tmpdirname}/{basename_withoutext(input_file)}_sea_level_difference_{level}.tif"
-                extract_pixels_by_mask(
-                    intersected_tif,
-                    reference_file,
-                    difference_tif,
-                    mode="difference",
-                    level=level,
-                )
-                
+                try:
+                    extract_pixels_by_mask(
+                        intersected_tif,
+                        reference_file,
+                        difference_tif,
+                        mode="difference",
+                        level=level,
+                    )
+                except Exception as e:
+                    print(f"The difference for level: {level} of a {basename_withoutext(original_file)} couldn't be processed because of {e}")
+                    difference_tif = selected_sea_level_file
+
                 # polygonize - difference shall serve as reference file in next iter
                 difference_polygonized = f"{tmpdirname}/{basename_withoutext(input_file)}_difference_polygonized_{level}.shp"
                 polygonize_raster(difference_tif, difference_polygonized)
@@ -1648,8 +1741,12 @@ def coastal_flooding_pixel_prediction(input_file: str, coastal_dataset, sea_leve
                 # reference file for difference extraction *after* the differences were extracted
                 reference_file = intersected_features_file
 
-                # edge cases
-                if base_layer == None:
+                # edge cases - if level 0 was skipped there wont be `base_layer`
+                try:
+                    if base_layer == None:
+                        base_layer = difference_tif
+
+                except UnboundLocalError:
                     base_layer = difference_tif
 
                 # add a tif layer to one tif file
@@ -1657,19 +1754,29 @@ def coastal_flooding_pixel_prediction(input_file: str, coastal_dataset, sea_leve
                 base_layer = sea_levels_simulation
 
             else:
-                # in case that level is 0, existing file is used just for invert
+                # in case that level is 0 (or other beginning level), existing file is used just for invert
                 reference_file = intersected_features_file  # vector mask file
                 difference_tif = f"{tmpdirname}/{basename_withoutext(input_file)}_sea_level_difference_{level}.tif"
-                extract_pixels_by_mask(
-                    intersected_tif,
-                    reference_file,
-                    difference_tif,
-                    mode="invert",
-                    level=level,
-                )
+                try:
+                    extract_pixels_by_mask(
+                        intersected_tif,
+                        reference_file,
+                        difference_tif,
+                        mode="invert",
+                        level=level,
+                    )
+                except:
+                    difference_tif = selected_sea_level_file
 
                 # this base layers is the first to be added to main file
                 base_layer = difference_tif
+
+        # copy final tif to data folder, if tile was empty raise warning and exit
+        try:
+            shutil.copyfile(sea_levels_simulation, output_file.replace(".shp", ".tif"))
+        except FileNotFoundError as e:
+            warnings.warn(f"File {sea_levels_simulation} is empty and therefore not complete")
+            return
 
         # and convert the result
         polygonized_simulation = (f"{tmpdirname}/{basename_withoutext(input_file)}_coastal_flooding.shp")
@@ -1684,51 +1791,6 @@ def coastal_flooding_pixel_prediction(input_file: str, coastal_dataset, sea_leve
 
     return print(output_file, " is done")
 
-
-def set_distance_attribute_2(grid_path, coastline_path, output_path, iterations = 5):
-    """
-    Set the 'distance' attribute for grid tiles based on their proximity to a coastline.
-
-    Parameters:
-    - grid_path (str): The file path to the grid Shapefile containing 1x1 tiles.
-    - coastline_path (str): The file path to the coastline Shapefile.
-    - output_path (str): The file path where the result will be saved.
-
-    Returns:
-    None: The function saves the modified grid with the 'distance' attribute to the specified output path.
-
-    Notes:
-    - The 'distance' attribute is set to 0 for tiles intersecting with the coastline.
-    - Subsequent distances (1, 2, 3, etc.) represent proximity to the coastline through neighboring tiles.
-    - The function uses Shapely and GeoPandas for spatial operations.
-    - The output is saved as a new Shapefile.
-    """
-    # TODO: change this with pg query /geoalchemy
-    # Load Shapefile and line
-    grid = gpd.read_file(grid_path)
-    coastline = gpd.read_file(coastline_path)
-
-    # Intersection
-    intersections = grid[grid.intersects(coastline)]
-
-    # Set initial distance for intersecting tiles
-    intersections['distance'] = 0
-
-    # Get neighbors and set distances
-    neighbors = gpd.GeoDataFrame()
-    for distance in range(1, iterations):  # Adjust the range based on the desired levels
-        for idx, tile in intersections.iterrows():
-            touching_tiles = grid[grid.touches(tile['geometry'])]
-            touching_tiles = touching_tiles[~touching_tiles.index.isin(neighbors.index)]  # Exclude already processed tiles
-            touching_tiles['distance'] = distance
-            neighbors = neighbors.append(touching_tiles)
-
-    # Merge results back to the original grid
-    result = grid.merge(neighbors[['distance']], left_index=True, right_index=True, how='left')
-    result['distance'] = result['distance'].fillna(result['distance'].max() + 1).astype(int)
-
-    # Save the result or return it as needed
-    result.to_file(output_path)
 
 def common_files_between_lists(list1, list2, keep_order = True):
     """
@@ -1752,7 +1814,7 @@ def common_files_between_lists(list1, list2, keep_order = True):
 
     return common_files
 
-def altitude_filter_files_list(dem_files: str, threshold_altitude=10):
+def altitude_filter_files_list(dem_files: str, threshold_altitude=10, direction = 'descending'):
     """
     filter all dem tiles with altitude lower than specified treshold
 
@@ -1770,8 +1832,12 @@ def altitude_filter_files_list(dem_files: str, threshold_altitude=10):
             altitude_array = dataset.ReadAsArray()
 
             # Check if any pixel has altitude less than the threshold
-            if (altitude_array < threshold_altitude).any():
-                tiles_with_low_altitude.append(file_path)
+            if direction == "descending":
+                if (altitude_array < threshold_altitude).any():
+                    tiles_with_low_altitude.append(file_path)
+            elif direction == "ascending":
+                if (altitude_array > threshold_altitude).any():
+                    tiles_with_low_altitude.append(file_path)
 
             # Close the dataset
             dataset = None
@@ -1779,21 +1845,29 @@ def altitude_filter_files_list(dem_files: str, threshold_altitude=10):
     return tiles_with_low_altitude
 
 
-def calculate_coastline_length(grid_table, coastline_table):
-    # Read data from PostgreSQL tables
 
-    grid_gdf, coastline_gdf = get_grid_and_coastline_gdf(grid_table, coastline_table)
+def has_empty_geometries(shapefile_path):
+    """
+    Check if a shapefile contains empty geometries.
 
-    # Perform intersection
-    intersections = gpd.overlay(grid_gdf, coastline_gdf, how='intersection', keep_geom_type=False)
-    # Calculate length of coastline in each grid cell
-    grid_gdf['coastline_length'] = intersections.groupby('geocellid').geometry.apply(lambda x: unary_union(x).length)
-    grid_gdf.to_csv("coastlines_lengths_intersections.csv")
+    Parameters:
+    - shapefile_path (str): The path to the shapefile.
 
-    return grid_gdf[['geocellid', 'coastline_length']]
+    Returns:
+    - bool: True if the shapefile contains empty geometries, False otherwise.
 
+    """
+    try:
+        # Read the shapefile into a GeoDataFrame
+        gdf = gpd.read_file(shapefile_path)
 
+        # Check for empty geometries
+        empty_geometries = gdf[gdf.is_empty]
 
+        return gdf.is_empty[0]
+    except Exception as e:
+        return True
+    
 
 def create_file_name_from_geocellid(geocell_id, folder_path):
     regex_match = r'([NS])(\d+)([WE])(\d+)'
@@ -1804,83 +1878,65 @@ def create_file_name_from_geocellid(geocell_id, folder_path):
         lat_value = geocell_id_match.group(2)
         lon_direction = geocell_id_match.group(3)
         lon_value = geocell_id_match.group(4)
-        file_name = f"{folder_path}/Copernicus_DSM_30_{lat_direction}{lat_value}_00_{lon_direction}{lon_value}_00_DEM.tif"
+        if folder_path == config["esa_global_dem_90_dir"]:
+            file_name = f"{folder_path}/Copernicus_DSM_30_{lat_direction}{lat_value}_00_{lon_direction}{lon_value}_00_DEM.tif"
+
+        elif folder_path == config["esa_global_dem_30_dir"]:
+            file_name = f"{folder_path}/Copernicus_DSM_10_{lat_direction}{lat_value}_00_{lon_direction}{lon_value}_00_DEM.tif"
 
         return file_name
     else:
         return None
     
 
-def get_grid_and_coastline_gdf(grid_table, coastline_table):
+def get_grid_and_coastline_gdf(continent = 'Europe'):
     """
     The intersection of coastline and esa_dem_grid file is queried and put into gdf object.
     """
     world_continents_boundaries = config["world_continents_boundaries_table"]
     
+    # only coastline tiles
     grid_coastlines_query = f"""
-    SELECT DISTINCT geocellid, ST_AsText(grid.geometry)
+    SELECT DISTINCT geocellid, grid.geometry
     FROM osm.esa_global_dem_grid as grid 
     JOIN osm.world_continents_boundaries wcb
     ON ST_Intersects(grid.geometry, wcb.geometry)
     JOIN osm.world_water_bodies_esri wwb
     ON ST_Intersects(grid.geometry, wwb.geom)
-    WHERE wcb.continent = 'North America' AND wwb.type = 'Ocean or Sea';
+    WHERE wcb.continent = '{continent}' AND wwb.type = 'Ocean or Sea';
     """
+    # coastline tiles and tiles close to those tiles (distances 0 and 1)
+    grid_coastlines_query = f""" 
+    SELECT DISTINCT  ON (geocellid) geocellid, geometry, distance
+    FROM (
+	SELECT DISTINCT geocellid, grid.geometry, 0 as distance
+	FROM osm.esa_global_dem_grid as grid 
+	JOIN osm.world_continents_boundaries wcb
+	ON ST_Intersects(grid.geometry, wcb.geometry)
+	JOIN osm.world_water_bodies_esri wwb
+	ON ST_Intersects(grid.geometry, wwb.geom)
+	WHERE wcb.continent = 'Europe' AND wwb.type = 'Ocean or Sea'
+	UNION
+	SELECT DISTINCT grid.geocellid, grid.geometry, 1 as distance
+	FROM (
+		SELECT DISTINCT grid.geometry
+		FROM osm.esa_global_dem_grid as grid 
+		JOIN osm.world_continents_boundaries wcb
+		ON ST_Intersects(grid.geometry, wcb.geometry)
+		JOIN osm.world_water_bodies_esri wwb
+		ON ST_Intersects(grid.geometry, wwb.geom)
+		WHERE wcb.continent = 'Europe' AND wwb.type = 'Ocean or Sea') as subquery,
+	osm.esa_global_dem_grid as grid 
+	WHERE ST_touches(grid.geometry, subquery.geometry)) as united
+	;
+    """
+
     coastline_grid_gdf = gpd.read_postgis(grid_coastlines_query, engine, geom_col = 'geometry')
 
     return coastline_grid_gdf
 
 
-def set_distance_attribute(grid_table, coastline_table, iterations=5):
-
-    grid_gdf, coastline_gdf = get_grid_and_coastline_gdf(grid_table, coastline_table)
-
-    # Intersection
-    intersections = grid_gdf[grid_gdf.intersects(coastline_gdf)]
-
-    # Set initial distance for intersecting tiles
-    intersections['distance'] = 0
-
-    # Get neighbors and set distances
-    # neighbours = gpd.GeoDataFrame()
-    neighbours = intersections.copy()
-    for distance in range(1, iterations):  # Adjust the range based on the desired levels
-        for idx, tile in intersections.iterrows():
-            touching_tiles = grid_gdf[grid_gdf.touches(tile['geometry'])]
-            touching_tiles = touching_tiles[~touching_tiles.index.isin(neighbours.index)]  # Exclude already processed tiles
-            touching_tiles['distance'] = distance
-            neighbours = pd.concat([neighbours, touching_tiles], ignore_index=True)
-
-    # Merge results back to the original grid
-    # result['distance'] = result['distance'].fillna(result['distance'].max() + 1).astype(int)
-
-    # result = neighbours
-    # result = intersections.concat(neighbours, left_index=True, right_index=True, how='left')
-    # Save the result to the PostgreSQL database
-    return neighbours
-
-
-# Combine the functions
-def calculate_coastline_and_distance(iterations=5):
-    """
-    combine results from `calculate_coastline_length` and `set_distance_attribute`
-    """
-    grid_table = config["esa_global_dem_grid_table"]
-    coastline_table = config["world_coastlines_table"]
-
-    coastline_length_df = calculate_coastline_length(grid_table, coastline_table)
-    coastline_distance_df = set_distance_attribute(grid_table, coastline_table, iterations)
-
-    coastline_length_df.to_csv("coastline_length_df.csv")
-    coastline_distance_df.to_csv("coastline_distance_df.csv")
-    # Merge the two dataframes on 'grid_cell_id'
-    result = pd.merge(coastline_length_df, coastline_distance_df, on='geocellid')
-    result.to_csv("grid_distances_to_coastlines.csv")
-
-    return result
-
-
-def sea_level_precheck(files_list: str):
+def sea_level_precheck(files_dir: str, continent = "Europe"):
     """
     this function iterates over grid of dem files and check if dem tiles are close to sea and if they contain pixels with latitude lower than 10m.
 
@@ -1891,53 +1947,39 @@ def sea_level_precheck(files_list: str):
     """
     low_altitude_files = config["low_altitude_dem_files"]
 
-    # a part for processing (or skipping the processing) of low altitude files
-    if os.path.exists(low_altitude_files):
-        with open(low_altitude_files, 'r') as file:
-            low_dem_tiles = file.read()
-            low_dem_tiles = low_dem_tiles.split(', ')
-
-    else: # create the file with paths and get the variable
+    overwrite = True
+    if overwrite == True or os.path.exists(low_altitude_files) == False:
+        files_list = geofilter_paths_list(files_dir, by = "continent", c_name=continent)
         low_dem_tiles = altitude_filter_files_list(files_list)
-        file_paths_to_write = ", ".join(low_dem_tiles)
+    #     file_paths_to_write = ", ".join(low_dem_tiles)
 
-        with open(low_altitude_files, 'w') as file:
-            file.write(file_paths_to_write) 
+    #     with open(low_altitude_files, 'w') as file:
+    #         file.write(file_paths_to_write) 
+
+    # a part for processing (or skipping the processing) of low altitude files
+    # elif os.path.exists(low_altitude_files):
+    #     with open(low_altitude_files, 'r') as file:
+    #         low_dem_tiles = file.read()
+    #         low_dem_tiles = low_dem_tiles.split(', ')
+
+
+    if continent == "North America":
+        coastal_neighbours_df = gpd.read_file(config["na_coastal_flooding_neighbours"]) # tiles for NA
+        # if tiles grid file was created by merging vector layers n stuff
+        coastal_neighbours_df['distance'] = coastal_neighbours_df['layer'].str.extract(r'(\d+)', expand=False).astype(int)
+
+    elif continent == "Europe":
+        coastal_neighbours_df = get_grid_and_coastline_gdf(continent) #tiles for EU
 
     # now the sorting part
-    coastal_neighbours_df = gpd.read_file(config["na_coastal_flooding_neighbours"])
-    geocellids = list(coastal_neighbours_df["geocellid"])
-
     folder_path = config["esa_global_dem_90_dir"]
     coastal_neighbours_df['file_path'] = coastal_neighbours_df['geocellid'].apply(create_file_name_from_geocellid, args=(folder_path,))
-    coastal_neighbours_df['distance'] = coastal_neighbours_df['layer'].str.extract(r'(\d+)', expand=False).astype(int)
 
     # remove all the files that are not in low altutide filtered list, and sort by coastal distance
     coastal_neighbours_df = coastal_neighbours_df[coastal_neighbours_df['file_path'].isin(low_dem_tiles)]
     coastal_neighbours_df = coastal_neighbours_df.sort_values(by=["distance", "geocellid"])
-    # low_dem_tiles = geocell_regex_match(low_dem_tiles, geocellids, regex_match)
+
+    # dict is returned
     coastal_neighbours_dict = dict(zip(coastal_neighbours_df['file_path'], coastal_neighbours_df['distance']))
 
-    # get common members in both lists (low dem tiles + tiles touching the coastline)
-    # common_list = common_files_between_lists(coastal_neighbours_list, low_dem_tiles)
-
     return coastal_neighbours_dict
-
-
-if __name__ == "__main__":
-    dem_eu_10_45_14 = "/mnt/volume-nbg1-1/satellite/eu_dem/dem10m/Copernicus_DSM_03_N45_00_E014_00_DEM.tif"
-    dem_90_45_14 = "/mnt/volume-nbg1-1/satellite/global/dem/dem_dsm_esa_90m_4326/Copernicus_DSM_30_N45_00_E014_00_DEM.tif"
-    lat, lon = 45, 14
-    output_extracted = f"/home/nikola/4_north_america/GeoDataPump/data/selected_dem_pixels_10m_{lat}_{lon}.tif"
-    # gdal_select_pixels(dem_eu_10_45_14, output_extracted)
-    # get_coastline_from_pg(kvarner_coastline, extent="kvarner")
-    # sea_levels_loop(dem_eu_10_45_14, sea_level=10)
-    # expand_tile(input_path, "/home/nikola/4_north_america/GeoDataPump/data")
-
-    #contour sea level usage in main.py
-    # contour_sea_level(lat, lon, 10, 10)
-    # pipeline_transform_sea_level.contour_sea_level(45, 14, 10, 10)
-
-    # explode_geometries("/home/nikola/contours_45_14.shp")
-    # flooded_tile = ""
-    # flooding_selection()
