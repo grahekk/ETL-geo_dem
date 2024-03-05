@@ -2,6 +2,16 @@ import subprocess
 import sys
 import psycopg2
 
+import settings
+
+config = settings.get_config()
+conn_parameters = settings.get_conn_parameters()
+schema = settings.get_schema()
+
+database_name = conn_parameters["database"]
+password = conn_parameters["password"]
+host = conn_parameters["host"]
+username = conn_parameters["user"]
 
 # load gpkg to local db with ogr2ogr
 
@@ -30,7 +40,7 @@ def import_to_local_db(schema:str, table_name:str, source_path:str, dbname:str, 
     elif format_type == 'geopackage':
         import_command = f'ogr2ogr -f "PostgreSQL" PG:"dbname={dbname}" -nln {schema}.{table_name} -nlt PROMOTE_TO_MULTI {source_path}'
     elif format_type == 'shapefile':
-        import_command = f'shp2pgsql -I -s {4326} -g geom {source_path} {schema}.{table_name} | psql -d {dbname}'
+        import_command = f'shp2pgsql -I -s {4326} -g geom {source_path} {schema}.{table_name} | psql -d {dbname} -h localhost -U {username} -p 5432 --password {password}'
     else:
         raise ValueError("Invalid format_type. Use 'raster', 'geopackage', or 'shapefile'.")
 
