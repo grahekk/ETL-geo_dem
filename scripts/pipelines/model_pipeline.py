@@ -1,9 +1,12 @@
 import logging
+import warnings
 import time
 import datetime
 from tqdm import tqdm
 import os
 import tempfile
+import multiprocessing
+import geopandas as gpd
 
 from .pipeline_download_s3_global import download_tree_cover_density
 from .pipeline_load_localPG import import_to_local_db
@@ -22,7 +25,12 @@ password = conn_parameters["password"]
 host = conn_parameters["host"]
 username = conn_parameters["user"]
 
-logging.basicConfig(filename=config["log_file_dir"], level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+engine = settings.get_engine()
+# Session = sessionmaker(bind=engine)
+
+# FORMAT = '%(asctime)s %(clientip)-15s %(user)-8s %(message)s'
+FORMAT = '%(asctime)s - %(levelname)s - %(message)s'
+logging.basicConfig(filename=config["log_file_dir"], level=logging.INFO, format=FORMAT)
 
 # Decorator functions
 def log_execution_time_and_args(func):
@@ -85,6 +93,14 @@ def loop_progress(iterable, desc="Processing", unit="files"):
                 )
         return wrapper
     return decorator
+
+
+def calculate_coastal_flooding(args):
+    """
+    Helper function for coastal flooding multiprocessing
+    """
+    tile, distance = args
+    coastal_flooding_pixel_prediction(tile, coast_distance=distance)
 
 
 class GisDataDownloader:
@@ -292,15 +308,32 @@ class DataTransformer:
         method to calculate (coastal) zones under the risk of flooding by the sea from DEM tiles.
         """
         files_dir = self.data
+        coastal_dataset = sea_level_precheck(files_dir)
+
+        for tile, distance in tqdm(coastal_dataset.items()):
+            coastal_flooding_pixel_prediction(tile, coast_distance = distance) 
+
+        logging.info(f"Sea level rise process complete")
+
+    @log_execution_time_and_args
+    def coastal_flooding_tiles_multiprocessing(self):
+        """
+        method to calculate (coastal) zones under the risk of flooding by the sea from DEM tiles.
+        """
+        files_dir = self.data
         # files_list = geofilter_paths_list(files_dir, by = "continent", c_name="North America", extent=(-180, 15, 10, 90))
         files_list = ""
 
         coastal_dataset = sea_level_precheck(files_list)
 
-        # logging.info(f"number of dem tiles lower than 10m {len(coastal_dataset)}")
+        # Use multiprocessing.Pool to parallelize the calculations
+        with multiprocessing.Pool(4) as pool:
+            tile_distance_tuples = coastal_dataset.items()
+            total_tasks = len(coastal_dataset)
 
-        for tile, distance in tqdm(coastal_dataset.items()):
-            coastal_flooding_pixel_prediction(tile, coastal_dataset, coast_distance = distance) 
+            with tqdm(total=total_tasks, desc="Processing") as pbar:
+                for _ in pool.imap(calculate_coastal_flooding, tile_distance_tuples):
+                    pbar.update(1)
 
         logging.info(f"Sea level rise process complete")
 
@@ -394,11 +427,11 @@ class DataLoader:
     Methods:
         load(): Loads data into the specified database.
     """
-    def __init__(self, table_name:str, data:str, data_type:str):
+    def __init__(self, table_name:str, source_path:str, data_type:str):
         self.schema = schema
-        self.table_name = table_name
-        self.data = data
         self.database_name = database_name
+        self.table_name = table_name
+        self.source_path = source_path
         self.data_type = data_type
 
     @log_execution_time_and_args
@@ -409,7 +442,17 @@ class DataLoader:
         Returns:
             Any: The result of the loading operation.
         """
-        return import_to_local_db(self.schema, self.table_name, self.data, self.database_name, self.data_type)
+        return import_to_local_db(self.schema, self.table_name, self.source_path, self.database_name, self.data_type)
+    
+    def load_local_postgis(self):
+        """
+        Loads data into the specified local database.
+
+        Returns:
+            Any: The result of the loading operation.
+        """
+        gdf = gpd.read_file(self.source_path)
+        gdf.to_postgis(self.table_name, engine, index=True)
 
 
 class MainPipeline:
