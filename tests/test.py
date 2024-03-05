@@ -7,6 +7,7 @@ import sys
 import time
 from statistics import mean
 import multiprocessing
+import random
 
 sys.path.append("/home/nikola/4_north_america/scripts/")
 import settings
@@ -214,6 +215,7 @@ def test_data_slope_rescaled():
     test_coords = read_coordinates(test_coords_path)
     na_slope_rescaled = config["NA_slope_rescaled"]
     save_test_results("na_slope_rescaled", na_slope_rescaled, test_coords)
+
 
 if __name__ == "__main__":
     # singleprocess_test_points("global", testing_file_global)
