@@ -2,6 +2,7 @@ import os
 from dotenv import load_dotenv
 import yaml
 import sys
+from sqlalchemy import create_engine
 
 scripts_directory = os.path.dirname(os.path.abspath(__file__))
 parent_directory = os.path.dirname(scripts_directory)
@@ -49,7 +50,8 @@ class ConnectionParameters():
                         'password':password}
     
     database_url: str = f"postgresql://{username}:{password}@{host_name}:{port}/{database_name}"
-    
+    engine = create_engine(database_url)
+
 class ConfigurationParameters():
     """
     A class for storing configuration parameters.
@@ -61,7 +63,7 @@ class ConfigurationParameters():
     data_directory_path = os.path.join(parent_directory, 'data/')
     parent_directory = parent_directory
     log_file_path = os.path.join(parent_directory, 'pipeline.log')
-    
+    ESA_dem_files_regex_match = r'_(S|N)(\d+)_00_(W|E)(\d+)'
 
 def get_conn_parameters():
     """
@@ -105,7 +107,7 @@ def get_schema():
 
 def get_config():
     """
-    Retrieve the configuration object.
+    Retrieve the configuration object that holds yaml attributes.
 
     Returns:
         config object: The configuration object that holds various settings and options.
@@ -113,7 +115,14 @@ def get_config():
     This function retrieves and returns the configuration object, which contains various settings and options
     for application configuration. The configuration object is obtained from the 'ConfigurationParameters' class.
     """
-    return ConfigurationParameters.config
+    return ConfigurationParameters().config
+
+def get_config_params():
+    """
+    initialize ConfigurationParameters object
+    """
+    return ConfigurationParameters()
+
 
 
 def get_data_path():
@@ -134,3 +143,9 @@ def get_parent_dir_path():
         parent_directory(str): variable that holds string to parent folder
     """
     return ConfigurationParameters.parent_directory
+
+def get_engine():
+    """
+    Get the engine initialised in ConnectionParameters class
+    """
+    return ConnectionParameters.engine
