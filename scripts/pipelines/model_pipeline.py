@@ -9,7 +9,7 @@ import multiprocessing
 import geopandas as gpd
 
 from .pipeline_download_s3_global import download_tree_cover_density
-from .pipeline_load_localPG import import_to_local_db
+from .pipeline_load_localPG import import_to_local_db, dump_local_db, load_to_aws_restore, load_to_aws_shp
 from .pipeline_transform_vrt_gdal import extract_values_gdal, gdal_build_vrt, absolute_file_paths, geofilter_paths_list, create_neighbour_vrt, clip_tile_by_dimensions, gdal_resample, transform_raster, rescale_raster, filter_by_geocellid, categorize_aspect
 from .pipeline_transform_qgis_resample import transform_geomorphon_qgis, geomorphon_chunky
 from .pipeline_download_utils_soils import unzip_file
@@ -18,6 +18,7 @@ import settings
 
 config = settings.get_config()
 conn_parameters = settings.get_conn_parameters()
+aws_conn_parameters = settings.get_aws_conn_parameters()
 schema = settings.get_schema()
 
 database_name = conn_parameters["database"]
@@ -30,7 +31,7 @@ engine = settings.get_engine()
 
 # FORMAT = '%(asctime)s %(clientip)-15s %(user)-8s %(message)s'
 FORMAT = '%(asctime)s - %(levelname)s - %(message)s'
-logging.basicConfig(filename=config["log_file_dir"], level=logging.INFO, format=FORMAT)
+logging.basicConfig(filename=config["log_file_dir"], format=FORMAT, level=logging.INFO)
 
 # Decorator functions
 def log_execution_time_and_args(func):
@@ -100,7 +101,7 @@ def calculate_coastal_flooding(args):
     Helper function for coastal flooding multiprocessing
     """
     tile, distance = args
-    coastal_flooding_pixel_prediction(tile, coast_distance=distance)
+    coastal_flooding_pixel_prediction(tile, coast_distance=distance, output_folder=config["NA_coastal_flooding_30m_dir"])
 
 
 class GisDataDownloader:
@@ -306,28 +307,31 @@ class DataTransformer:
     def coastal_flooding_tiles(self):
         """
         method to calculate (coastal) zones under the risk of flooding by the sea from DEM tiles.
+        DEM tiles are given in the instatiated object as self.data, output_dir is given in "output" parameter of `DataTransformer` class.
         """
         files_dir = self.data
+        output_dir = self.output
         coastal_dataset = sea_level_precheck(files_dir)
 
         for tile, distance in tqdm(coastal_dataset.items()):
-            coastal_flooding_pixel_prediction(tile, coast_distance = distance) 
+            coastal_flooding_pixel_prediction(tile, coast_distance = distance, output_folder = output_dir)
 
-        logging.info(f"Sea level rise process complete")
+        logging.info(f"Coastal flooding predict process complete")
 
     @log_execution_time_and_args
     def coastal_flooding_tiles_multiprocessing(self):
         """
         method to calculate (coastal) zones under the risk of flooding by the sea from DEM tiles.
+        Uses multiprocessing.
         """
         files_dir = self.data
         # files_list = geofilter_paths_list(files_dir, by = "continent", c_name="North America", extent=(-180, 15, 10, 90))
-        files_list = ""
+        output_dir = self.output
 
-        coastal_dataset = sea_level_precheck(files_list)
+        coastal_dataset = sea_level_precheck(files_dir)
 
         # Use multiprocessing.Pool to parallelize the calculations
-        with multiprocessing.Pool(4) as pool:
+        with multiprocessing.Pool(5) as pool:
             tile_distance_tuples = coastal_dataset.items()
             total_tasks = len(coastal_dataset)
 
@@ -335,7 +339,7 @@ class DataTransformer:
                 for _ in pool.imap(calculate_coastal_flooding, tile_distance_tuples):
                     pbar.update(1)
 
-        logging.info(f"Sea level rise process complete")
+        logging.info(f"Coastal flooding process complete")
 
 
     @log_execution_time_and_args
@@ -351,7 +355,7 @@ class DataTransformer:
         file = self.data
         coastal_flooding_pixel_prediction(file, 10)
 
-        logging.info(f"Sea level rise process complete")
+        logging.info(f"Coastal flooding process complete")
 
 
     @log_execution_time_and_args
@@ -428,11 +432,21 @@ class DataLoader:
         load(): Loads data into the specified database.
     """
     def __init__(self, table_name:str, source_path:str, data_type:str):
+        # local params
         self.schema = schema
         self.database_name = database_name
         self.table_name = table_name
+
+        # file params
         self.source_path = source_path
         self.data_type = data_type
+        self.dump_file = config["sql_dump_file"]
+
+        # aws params
+        self.aws_db = aws_conn_parameters["database"]
+        self.aws_pass = aws_conn_parameters["password"]
+        self.aws_host_name = aws_conn_parameters["host"]
+        self.aws_user = aws_conn_parameters["user"]
 
     @log_execution_time_and_args
     def load_local(self):
@@ -444,15 +458,49 @@ class DataLoader:
         """
         return import_to_local_db(self.schema, self.table_name, self.source_path, self.database_name, self.data_type)
     
-    def load_local_postgis(self):
-        """
-        Loads data into the specified local database.
+    # def load_local_postgis(self):
+    #     """
+    #     Loads data into the specified local database.
 
-        Returns:
-            Any: The result of the loading operation.
+    #     Returns:
+    #         Any: The result of the loading operation.
+    #     """
+    #     gdf = gpd.read_file(self.source_path)
+    #     gdf.to_postgis(self.table_name, engine, index=True)
+
+    @log_execution_time_and_args
+    def dump_local_table(self):
         """
-        gdf = gpd.read_file(self.source_path)
-        gdf.to_postgis(self.table_name, engine, index=True)
+        Use `dump_local_db` to dump database table into a file, for inserting it later into aws db.
+        """
+        return dump_local_db(self.schema, self.table_name, self.database_name, self.dump_file)
+    
+    @log_execution_time_and_args
+    def aws_load(self):
+        """
+        Load dumped database file to aws.
+        """
+        return load_to_aws_restore(self.dump_file, self.aws_host_name, self.aws_db, self.aws_user)
+    
+
+    def aws_iterative_shp_load(self):
+        """
+        Load shp file to aws iterativelly in for loop.
+        """
+        shp_files = list(absolute_file_paths(self.source_path, "shp"))
+        for file in tqdm(shp_files, total=len(shp_files)):
+            load_to_aws_shp(self.schema, self.table_name, file, "shapefile")
+            logging.info(f"File {file} loading into db done")
+
+
+    def local_iterative_shp_load(self):
+        """
+        Load shp file to local db iterativelly.
+        """
+        shp_files = list(absolute_file_paths(self.source_path, "shp"))
+        for file in tqdm(shp_files, total=len(shp_files)):
+            import_to_local_db(self.schema, self.table_name, file, self.database_name, "shapefile")
+            logging.info(f"File {file} loading into db done")
 
 
 class MainPipeline:
