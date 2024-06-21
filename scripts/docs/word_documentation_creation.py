@@ -36,7 +36,8 @@ def create_dem_documentation():
             "Path do skripte": metadata_entry["script_path"],
             "Funkcija za izradu file-a": metadata_entry["creation_method"],
             "Web download data": metadata_entry["download_url"],
-            f"Slike dataseta ({heading})": f'(image:{metadata_entry["image_path"]})',
+            f"Slike cijelog dataseta ({heading})": f'(image:{metadata_entry["image_path_whole"]})',
+            f"Slike dijela dataseta ({heading})": f'(image:{metadata_entry["chunk_image_path"]})',
         }
 
         table = doc.add_table(rows=len(table_data), cols=2)
