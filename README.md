@@ -1,19 +1,19 @@
 # North America - Data Pipeline and ETL Project
 
 This project is designed to help you organize and automate the process of downloading, transforming, and loading spatial data for North America from various sources into a PostgreSQL database. It follows a modular structure for better maintainability and scalability. 
-It contains scripts for downloading spatial files for North America
+It contains scripts for downloading spatial files for North America. Scripts are called pipelines as they are organized into structure that follows ETL paradigm.
 
 
 ## Directory Structure
 
-- **data**: This directory is intended for storing both raw and transformed data. Raw data should be placed in the `raw_data` directory, and transformed data should be placed in the `transformed_data` directory. Also, it contains helper files contaning lists of urls etc.
+- **data**: This directory is intended for storing both raw and transformed data. Raw data should be placed in the `raw_data` directory, and transformed data should be placed in the `transformed_data` directory. Also, it contains helper files contaning lists of urls etc. Data biggern than 1gb is generally put into /mnt/shared directory.
 
     - **url_txt_files**: `USGS_dem_urls.txt` is a file created from USGS web page after selecting all available products, as described on the page: https://apps.nationalmap.gov/uget-instructions/. There is also `NASA_global_dem_urls.txt` file is downloaded from nasa's page as described on : https://nsidc.org/data/user-resources/help-center/nasa-earthdata-cloud-data-access-guide
 as well as downoad.sh file with urls pointing to dem tiles
 
     - **dem files**: sources for this pipelines are US, NASA and Canadian official pages. More is described in *Data Sources* headline.
 
-- **scripts**: This directory contains Python scripts that make up your data pipeline and ETL process.
+- **scripts**: This directory contains Python scripts that make up data pipeline and ETL process.
 
     - **pipeline_download**: This subdirectory contains modules related to data download.
 
@@ -69,7 +69,14 @@ The pipelines in this project serve for collecting data generally for North Amer
 - Global tree cover density 30m: University of Maryland: Global Forest Change 2000–2014 from https://earthenginepartners.appspot.com/science-2013-global-forest/download_v1.2.html
 - Global tree cover density 30m: Also possible to find on Arcgis Tree Cover (2000) https://www.arcgis.com/home/item.html?id=5fb3275e080e497fa44174d2b14d4b7c
 - Imperviousness: Global Man-made Impervious Surface (GMIS) Dataset From Landsat tiles are obtained from https://cmr.earthdata.nasa.gov/search/concepts/C1517102461-SEDAC.html (earthdata credentials required)
+- World flooding maps from jrc (10,20,50,100,200,500 returning periods): https://data.jrc.ec.europa.eu/collection/id-0054 
+- City of Venice elevation data (https://www.arcgis.com/home/item.html?id=289ff9d3d111443b95f945d414339336)
+- World soil maps ISRIC: https://data.isric.org/geonetwork/srv/eng/catalog.search#/home
 
+## Pipelines
+The `pipelines` directory/module contains pipeline scripts and modules. Executable tasks are called flows and are called as functions in `main.py` from `pipeline_flows.py` module.
+Flows generally call pre-configured methods from well defined classes that are contained in `model_pipeline.py`. It contains `Download`, `Transform` and `Load` classes which hold methods for data manipulation. For example, `geomorphon`, `aspect` and `load` methods can be found inside `DataTransformer` class.
+Some other methods, such as coastal flooding are contained in it's own module (`pipeline_transform_sea_level.py`) because of the complexity of the algorithm and the task itself.
 
 ## Target PostgreSQL Database
 The collected data is intended to be transformed and loaded into a given PostgreSQL database. You should configure the database connection details and schema as needed in your `config.yaml` and `settings.py` to set up transformation and loading scripts/pipelines.
@@ -78,8 +85,6 @@ The collected data is intended to be transformed and loaded into a given Postgre
 
 This README file provides an overview of project's structure and instructions on how to use it and what it can do. 
 You can further customize it to include specific details about your project's goals, data sources, and any additional setup or configuration steps.
-
-
 
 
 
