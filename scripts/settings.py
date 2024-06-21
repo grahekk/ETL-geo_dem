@@ -8,11 +8,12 @@ scripts_directory = os.path.dirname(os.path.abspath(__file__))
 parent_directory = os.path.dirname(scripts_directory)
 sys.path.append(parent_directory)
 config_path = os.path.join(scripts_directory, 'config.yaml')
+env_path = os.path.join(scripts_directory, '.env')
 
 with open(config_path, 'r') as file:
     config = yaml.safe_load(file)
 
-load_dotenv()
+load_dotenv(env_path)
 
 class ConnectionParameters():
     """
@@ -41,7 +42,13 @@ class ConnectionParameters():
     database_name = os.getenv('database_name')
     username = os.getenv('username')
     password = os.getenv('password')
-    schema = 'osm'
+    schema = 'data'
+
+    aws_host_name = os.getenv('aws_host_name')
+    aws_port = os.getenv('aws_port')
+    aws_database_name = os.getenv('aws_database_name')
+    aws_username = os.getenv('aws_username')
+    aws_password = os.getenv('aws_password')
 
     conn_parameters = {'host':host_name,
                         'port':port,
@@ -49,7 +56,14 @@ class ConnectionParameters():
                         'user':username,
                         'password':password}
     
+    aws_conn_parameters = {'host':aws_host_name,
+                        'port':aws_port,
+                        'database':aws_database_name,
+                        'user':aws_username,
+                        'password':aws_password}
+        
     database_url: str = f"postgresql://{username}:{password}@{host_name}:{port}/{database_name}"
+    aws_database_url: str = f"postgresql://{aws_username}:{aws_password}@{aws_host_name}:{aws_port}/{aws_database_name}"
     engine = create_engine(database_url)
 
 class ConfigurationParameters():
@@ -64,6 +78,7 @@ class ConfigurationParameters():
     parent_directory = parent_directory
     log_file_path = os.path.join(parent_directory, 'pipeline.log')
     ESA_dem_files_regex_match = r'_(S|N)(\d+)_00_(W|E)(\d+)'
+    USGS_dem_files_regex_match = r'_(s|n)(\d+)(w|e)(\d+)_'
 
 def get_conn_parameters():
     """
@@ -83,6 +98,11 @@ def get_conn_parameters():
     conn_parameters = ConnectionParameters.conn_parameters
     return conn_parameters
 
+def get_aws_conn_parameters():
+    """
+    Similar to `get_conn_parameters`, only with conn parameters for connecting to aws db.
+    """
+    return ConnectionParameters.aws_conn_parameters
 
 def get_database_url():
     """
@@ -90,6 +110,13 @@ def get_database_url():
     """
     database_url = ConnectionParameters.database_url
     return database_url
+
+def get_aws_database_url():
+    """
+    get database url made up of connection parameters
+    """
+    aws_database_url = ConnectionParameters.aws_database_url
+    return aws_database_url
 
 
 def get_schema():
