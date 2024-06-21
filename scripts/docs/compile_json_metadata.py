@@ -128,7 +128,8 @@ class FileMetadata:
         self.script_path = None
         self.version = "1.0"
         self.data_attributes = None
-        self.image_path = None
+        self.image_path_whole = None
+        self.chunk_image_path = None
 
     def update_metadata(self):
         """
@@ -156,7 +157,7 @@ class FileMetadata:
             self.coordinate_system = ogr_get_coordinate_system(self.file_path)  
 
 
-def create_metadata_list(file_paths, descriptions, script_paths, creation_methods, times_to_make, download_urls, versions, data_attributes, image_paths):
+def create_metadata_list(file_paths, descriptions, script_paths, creation_methods, times_to_make, download_urls, versions, data_attributes, whole_image_paths, chunk_image_paths):
     """
     Create a list of FileMetadata objects based on provided file_paths and descriptions.
 
@@ -169,7 +170,7 @@ def create_metadata_list(file_paths, descriptions, script_paths, creation_method
     """
     metadata_list = []
 
-    for file_path, description, script_path, creation_method, time_to_make, download_url, version, data_attribute, image_path in zip(file_paths, descriptions, script_paths, creation_methods, times_to_make, download_urls, versions, data_attributes, image_paths):
+    for file_path, description, script_path, creation_method, time_to_make, download_url, version, data_attribute, image_path_whole, chunk_image_path in zip(file_paths, descriptions, script_paths, creation_methods, times_to_make, download_urls, versions, data_attributes, whole_image_paths, chunk_image_paths):
         metadata_obj = FileMetadata(file_path)
         metadata_obj.update_metadata()
         metadata_obj.description = description
@@ -179,7 +180,8 @@ def create_metadata_list(file_paths, descriptions, script_paths, creation_method
         metadata_obj.script_path = script_path
         metadata_obj.version = version
         metadata_obj.data_attributes = data_attribute
-        metadata_obj.image_path = image_path
+        metadata_obj.image_path_whole = image_path_whole
+        metadata_obj.chunk_image_path = chunk_image_path
         # append the object to metadata list
         metadata_list.append(metadata_obj)
 
@@ -210,7 +212,8 @@ def export_metadata_to_json(metadata_list, json_file_path):
             "time_to_make": metadata_obj.time_to_make,
             "attributes": metadata_obj.data_attributes,
             "description": metadata_obj.description,
-            "image_path": metadata_obj.image_path,
+            "image_path_whole": metadata_obj.image_path_whole,
+            "chunk_image_path": metadata_obj.chunk_image_path,
         })
 
     with open(json_file_path, "w") as json_file:
@@ -244,9 +247,10 @@ def main():
     times_to_make = [metadata_description[key]["time_to_make"] for key in keys]
     versions = [metadata_description[key]["version"] for key in keys]
     data_attributes = [metadata_description[key]["attributes"] for key in keys]
-    image_paths = [metadata_description[key]["image_path"] for key in keys]
+    whole_image_paths = [metadata_description[key]["image_path_whole"] for key in keys]
+    chunk_image_paths = [metadata_description[key]["image_path_chunk"] for key in keys]
 
-    metadata_list = create_metadata_list(file_paths, descriptions, script_paths, creation_methods, times_to_make, download_urls, versions, data_attributes, image_paths)
+    metadata_list = create_metadata_list(file_paths, descriptions, script_paths, creation_methods, times_to_make, download_urls, versions, data_attributes, whole_image_paths, chunk_image_paths)
     export_metadata_to_json(metadata_list, config["metadata_list"])
 
 if __name__ == "__main__":
