@@ -16,6 +16,8 @@ import rasterio
 import settings
 config = settings.get_config()
 conn_parameters = settings.get_conn_parameters()
+schema = settings.get_schema()
+
 from .model_data import get_geocellid
 # from .pipeline_transform_sea_level import basename_withoutext
 
@@ -81,7 +83,7 @@ def geocellid_by_continents(conn_parameters, continent = "North America"):
     # Connect to the PostgreSQL database and fetch the geocell IDs
     with psycopg2.connect(**conn_parameters) as conn:
         with conn.cursor() as cursor: 
-            cursor.callproc('osm.get_geocellids_in_continent', [continent])
+            cursor.callproc(f'{schema}.get_geocellids_in_continent', [continent])
             result = cursor.fetchall()
     conn.close()
     geocell_ids = [row[0] for row in result] #convert list of tuples containing string to list of strings
@@ -104,7 +106,7 @@ def geocellid_by_country(conn_parameters, country = "United States"):
     # Connect to the PostgreSQL database and fetch the geocell IDs
     with psycopg2.connect(**conn_parameters) as conn:
         with conn.cursor() as cursor: 
-            cursor.callproc('osm.get_geocellids_in_country', [country])
+            cursor.callproc(f'{schema}.get_geocellids_in_country', [country])
             result = cursor.fetchall()
     conn.close()
     geocell_ids = [row[0] for row in result] #convert list of tuples containing string to list of strings
@@ -171,7 +173,7 @@ def geocell_regex_match(files:list, geocell_filter_list:list, regex_match):
     return filtered_files
 
 
-def geocellid_from_file_name(file_path:str):
+def geocellid_from_file_name(file_path:str, regex_match = r'_(S|N)(\d+)_00_(W|E)(\d+)'):
     """
     Take file name and extract a geocellid from it, if it matches.
 
@@ -179,15 +181,17 @@ def geocellid_from_file_name(file_path:str):
         file_path(str): a path to file
     """
     file_name = os.path.basename(file_path)
-    # match something like "N23_00_W123"
-    regex_match = r'_(S|N)(\d+)_00_(W|E)(\d+)'
+
 
     geocell_id_match = re.search(regex_match, file_name)
     if geocell_id_match:
-        lat_direction = geocell_id_match.group(1)
+        lat_direction = geocell_id_match.group(1).upper()
         lat_value = geocell_id_match.group(2)
-        lon_direction = geocell_id_match.group(3)
+        lon_direction = geocell_id_match.group(3).upper()
         lon_value = geocell_id_match.group(4)
+
+        if "USGS" in file_name:
+            lat_value = int(lat_value)-1
             
         # Construct the geocell ID based on the extracted values
         geocell_id = f"{lat_direction}{lat_value}{lon_direction}{lon_value}"
