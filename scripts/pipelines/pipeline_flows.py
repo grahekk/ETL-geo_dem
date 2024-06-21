@@ -9,7 +9,7 @@ import tempfile
 from .pipeline_load_localPG import import_to_local_db
 from .pipeline_transform_vrt_gdal import geofilter_paths_list, gdal_build_vrt, absolute_file_paths, transform_raster, categorize_aspect, create_vrt_ovr_flow, split_list, geocell_regex_match
 from . import model_pipeline
-from .pipeline_transform_sea_level import sea_level_precheck
+from .pipeline_transform_sea_level import sea_level_precheck, create_file_name_from_geocellid, coastal_flooding_pixel_prediction
 
 sys.path.append("/home/nikola/4_north_america/scripts/")
 import settings
@@ -332,6 +332,51 @@ def coastal_flooding_90m_Europe_flow():
         coastal_flooding_transformer.coastal_flooding_tiles()
     return
 
+def coastal_flooding_30m_NA_flow():
+    """
+    Create predicted areas where coastal flooding could occur using DEM 30m tiles for North America.
+    """
+    coastal_flooding_transformer = model_pipeline.DataTransformer(config["esa_na_dem_30_dir"], config["NA_coastal_flooding_30m_dir"])
+    for i in range(0,2):
+        coastal_flooding_transformer.coastal_flooding_tiles()
+    return
+
+def coastal_flooding_30m_NA_multiprocessing_flow():
+    """
+    Create predicted areas where coastal flooding could occur using DEM 30m tiles for North America.
+    """
+    coastal_flooding_transformer = model_pipeline.DataTransformer(config["esa_na_dem_30_dir"], config["NA_coastal_flooding_30m_dir"])
+    for i in range(0,2):
+        coastal_flooding_transformer.coastal_flooding_tiles_multiprocessing()
+    return
+
+def coastal_flooding_10m_USA_flow():
+    """
+    Create predicted areas where coastal flooding could occur using DEM 10m tiles for USA from USGS.
+    """
+    coastal_flooding_transformer = model_pipeline.DataTransformer(config["usgs_dem_dir"], config["USA_coastal_flooding_10m_dir"])
+    for i in range(0,2):
+        coastal_flooding_transformer.coastal_flooding_tiles()
+    return
+
+def coastal_flooding_10m_USA_multiprocessing_flow():
+    """
+    Create predicted areas where coastal flooding could occur using DEM 30m tiles for North America.
+    """
+    coastal_flooding_transformer = model_pipeline.DataTransformer(config["usgs_dem_dir"], config["USA_coastal_flooding_10m_dir"])
+    for i in range(0,2):
+        coastal_flooding_transformer.coastal_flooding_tiles_multiprocessing()
+    return
+
+def coastal_flooding_10m_Europe_flow():
+    """
+    Create predicted areas where coastal flooding could occur using DEM 10m tiles for Europe from ESA.
+    """
+    coastal_flooding_transformer = model_pipeline.DataTransformer(config["esa_eu_dem_10_dir"], config["EU_coastal_flooding_10m_dir"])
+    for i in range(0,2):
+        coastal_flooding_transformer.coastal_flooding_tiles()
+    return
+
 def tree_cover_filter_flow():
     """
     flow for filtering forests out of world cover dataset
@@ -399,10 +444,42 @@ def hawaii_repair_flow():
     hawaii.geomorphon()
     print("Geomorphon done")
 
-def load_water_bodies_data_to_mnt():
-    data_loader = model_pipeline.DataLoader("water_bodies_esri", config["world_water_bodies_esri_shp"], "shapefile")
+def hawaii_30m_coastal_flooding_flow():
+    """
+    flow for using only hawaii dem tiles for filling up the coastal flooding dataset
+    """
+    NA_hawaii_geocells = config["NA_hawai_geocells"].split(", ")
+
+    file_paths = []
+    for geocell in NA_hawaii_geocells:
+        file_path = create_file_name_from_geocellid(geocell, config["esa_na_dem_30_dir"])
+        file_paths.append(file_path)
+        
+    for i in file_paths:
+        coastal_flooding_pixel_prediction(i, output_folder=config["NA_coastal_flooding_30m_dir"])
+
+
+def load_to_mnt_flow():
+    data_loader = model_pipeline.DataLoader(config["EU_coastal_flooding_90m_table"], config["EU_coastal_flooding_90m_shp"], "shapefile")
     data_loader.load_local()
 
-def load_NA_coastal_flooding_to_mnt():
-    data_loader = model_pipeline.DataLoader(config["NA_coastal_flooding_90m_table"], config["NA_coastal_flooding_90"], "shapefile")
-    data_loader.load_local()    
+def load_to_aws_flow():
+    data_loader = model_pipeline.DataLoader(config["NA_aspect_table"], config["NA_aspect"], "raster")
+    data_loader.dump_local_table()
+    # data_loader.aws_load()
+
+def load_coastal_flooding_30m_to_aws_flow():
+    data_loader = model_pipeline.DataLoader("na_coastal_flooding_30m_4326", config["NA_coastal_flooding_30m_dir"], "shapefile")
+    data_loader.aws_iterative_shp_load()
+
+def load_coastal_flooding_10m_EU_to_mnt_flow():
+    data_loader = model_pipeline.DataLoader("eu_coastal_flooding_10m_4326", config["EU_coastal_flooding_10m_dir"], "shapefile")
+    data_loader.local_iterative_shp_load()
+
+def load_coastal_flooding_10m_EU_to_aws_flow():
+    data_loader = model_pipeline.DataLoader("eu_coastal_flooding_10m_4326", config["EU_coastal_flooding_10m_dir"], "shapefile")
+    data_loader.aws_iterative_shp_load()
+
+def load_coastal_flooding_10m_USA_to_aws_flow():
+    data_loader = model_pipeline.DataLoader("usa_coastal_flooding_10m_4329", config["USA_coastal_flooding_10m_dir"], "shapefile")
+    data_loader.aws_iterative_shp_load()
