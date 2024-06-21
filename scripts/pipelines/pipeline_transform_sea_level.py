@@ -26,8 +26,9 @@ from sqlalchemy import create_engine
 import shutil
 import logging
 
-from .pipeline_transform_vrt_gdal import gdal_build_vrt, geocell_regex_match, geocellid_from_file_name, geofilter_paths_list
+from .pipeline_transform_vrt_gdal import gdal_build_vrt, geocell_regex_match, geocellid_from_file_name, geofilter_paths_list, absolute_file_paths
 from .model_data import get_geocellid, get_product_name
+from .tile_utils import generate_neighbouring_coordinates, expand_tile, collect_neighbouring_coastal_flood_files, extract_coordinates_from_tile_name
 
 # Define the database connection parameters
 sys.path.append("/home/nikola/4_north_america/GeoDataPump/scripts")
@@ -45,11 +46,15 @@ username = conn_parameters["user"]
 
 database_url = settings.get_database_url()
 engine = create_engine(database_url)
+USGS_dem_regex = settings.get_config_params().USGS_dem_files_regex_match
+ESA_dem_files_regex_match = settings.get_config_params().ESA_dem_files_regex_match
 
 coastlines = config["NA_coastlines"]
 # coastlines = "/home/nikola/coastline_45_14_kvarner.shp"
 # coastlines = kvarner_coastline
-regex_match = Configuration.ESA_dem_files_regex_match
+regex_match = ESA_dem_files_regex_match
+regex_match = USGS_dem_regex
+
 data_folder = config["data_folder"]
 
 sys.path.append("/usr/lib/python3/dist-packages")
@@ -665,148 +670,6 @@ def clip_vector_dataset(
     output_ds = None
 
 
-def gdalwarp_string(ul_lon, ul_lat, lr_lon, lr_lat, input_path, output_path):
-    return f"gdalwarp -overwrite -r near -of GTiff -te {ul_lon} {ul_lat} {lr_lon} {lr_lat} {input_path} {output_path}"
-
-
-def expand_tile(input_tile_path: str, tmp_folder:str, expansion = 0.007):
-    """
-    Expands the geographical coverage of a given input tile by including neighbouring tiles.
-
-    Parameters:
-    - input_tile_path (str): Path to the input tile file.
-    - tmp_folder (str): Path to the temporary folder where intermediate and output files will be stored.
-    - expansion (float, optional): The distance, in geographical degrees, by which to expand the tile.
-                                   Defaults to 0.007 degrees.
-
-    Returns:
-    - str: Path to the created Virtual Raster Tile (VRT) file representing the expanded tile.
-    """
-    lat_direction,lat_value,lon_direction,lon_value = extract_coordinates_from_tile_name(input_tile_path)
-    central_tile_lat_lon = (lat_value, lon_value)
-    neighbouring_coords = generate_neighbouring_coordinates(central_tile_lat_lon, delta=expansion)
-
-    vrt_paths = [input_tile_path]
-
-    # neighbouring tiles clipping part
-    for i in range(0, 8):
-        ul_lon, ul_lat, lr_lon, lr_lat = neighbouring_coords[i]
-        gdalwarp_tile_name = f"gdalwarp_{math.floor(ul_lat)}_{math.floor(ul_lon)}.tif"
-        input_warp = replace_coordinates(
-            input_tile_path, math.floor(ul_lat), math.floor(ul_lon)
-        )
-
-        if os.path.exists(input_warp):
-            output_path = os.path.join(tmp_folder, gdalwarp_tile_name)
-            command = gdalwarp_string(
-                ul_lon, ul_lat, lr_lon, lr_lat, input_warp, output_path
-            )
-            os.system(command)
-
-            vrt_paths.append(output_path)
-
-    # create vrt
-    vrt_file_name = f"expanded_tile{lat_value}_{lon_value}.vrt"
-    out_vrt = os.path.join(tmp_folder, vrt_file_name)
-    gdal_build_vrt(vrt_paths, out_vrt)
-
-    return out_vrt
-
-
-def replace_coordinates(input_string, lat_value, lon_value):
-    """
-    Replace latitude and longitude values in a string based on a specified regex pattern.
-
-    Args:
-        input_string (str): The input string containing latitude and longitude placeholders.
-        lat_value (str): The new latitude value to replace the matched latitude placeholder.
-        lon_value (str): The new longitude value to replace the matched longitude placeholder.
-
-    Returns:
-        str: A new string with replaced latitude and longitude values.
-
-    Example:
-        >>> input_string = "Copernicus_DSM_03_N45_00_E015_00_DEM"
-        >>> lat_value = "1"
-        >>> lon_value = "1"
-        >>> replace_coordinates(input_string, lat_value, lon_value)
-        'Copernicus_DSM_03_N1_00_E1_00_DEM'
-    """
-    regex_pattern = regex_match
-
-    def replacement(match):
-        """
-        Replacement function for re.sub.
-
-        Args:
-            match (re.Match): The regex match object.
-
-        Returns:
-            str: The replacement string with adjusted latitude and longitude values.
-        """
-        return f"_{match.group(1)}{lat_value:02d}_00_{match.group(3)}{lon_value:03d}"
-
-    result = re.sub(regex_pattern, replacement, input_string)
-    return result
-
-
-def extract_coordinates_from_tile_name(
-    file_name: str, regex_match=r"_(S|N)(\d+)_00_(W|E)(\d+)"
-):
-    """
-    Extract latitude and longitude coordinates from a given tile name.
-
-    Parameters:
-    - file_name (str): The tile name containing latitude and longitude information.
-    - regex_match (str): Regular expression pattern to match latitude and longitude components.
-      Default pattern assumes a format like 'Copernicus_DSM_03_N45_00_E015_00_DEM.tif'.
-
-    Returns:
-    - tuple: A tuple containing the following components:
-        - lat_direction (str): Latitude direction ('S' for South, 'N' for North).
-        - lat_value (str): Latitude value extracted from the tile name.
-        - lon_direction (str): Longitude direction ('W' for West, 'E' for East).
-        - lon_value (str): Longitude value extracted from the tile name.
-    """
-    file_name = os.path.basename(file_name)
-    geocell_id_match = re.search(regex_match, file_name)
-
-    if geocell_id_match:
-        lat_direction = geocell_id_match.group(1)
-        lat_value = geocell_id_match.group(2)
-        lon_direction = geocell_id_match.group(3)
-        lon_value = geocell_id_match.group(4)
-
-        return lat_direction, lat_value, lon_direction, lon_value
-
-
-def generate_neighbouring_coordinates(center: tuple, delta=0.15):
-    """
-    Generate coordinates for a given center point, considering eight directions.
-
-    Parameters:
-    - center (tuple): Tuple of two numbers (lat, lon) representing the central point.
-    - delta (float): Distance from the central point to the boundary in each direction.
-
-    Returns:
-    - list of tuples: List containing four numbers (x_min, y_min, x_max, y_max) for each direction.
-    """
-    lat, lon = center
-    lat = int(lat)
-    lon = int(lon)
-
-    left = (lon - delta, lat, lon, lat + 1)
-    down = (lon, lat - delta, lon + 1, lat)
-    right = (lon + 1, lat, lon + 1 + delta, lat + 1)
-    up = (lon, lat + 1, lon + 1, lat + 1 + +delta)
-    down_right = (lon + 1, lat - delta, lon + 1 + delta, lat)
-    down_left = (lon - delta, lat - delta, lon, lat)
-    up_right = (lon + 1, lat + 1, lon + 1 + delta, lat + 1 + delta)
-    up_left = (lon - delta, lat + 1, lon, lat + 1 + delta)
-
-    return left, down, right, up, down_right, down_left, up_right, up_left
-
-
 def flooding_selection(
     polygon_shapefile_path, line_shapefile_path, output_shapefile_path
 ):
@@ -997,7 +860,7 @@ def gpd_extract_features_by_location(input_shapefile:str, reference_shapefile:st
     if "SELECT" in reference_shapefile:
         reference_gdf = gpd.read_postgis(reference_shapefile, engine, geom_col="geom")
         reference_gdf.to_file(input_shapefile.replace(".shp", "_queried_coastlines.shp"))
-        # print(f"reference_gdf saved temporarily")
+
     else:
         reference_gdf = gpd.read_file(reference_shapefile)
         # subset condition is optional (should be)
@@ -1493,89 +1356,7 @@ def give_tmp_file_name(input_file: str, level: int, name: str):
     return f"{basename_withoutext(input_file)}_{name}_{level}.shp"
 
 
-def collect_neighbouring_coastal_flood_files(central_file:str, neighbours = 1, include_central = False, coastal_flood_sufix = "coastal_flood"):
-    """
-    Collects the paths of neighboring coastal flood files given the central file.
-
-    Parameters:
-    - central_file (str): Path to the central coastal flood file.
-    - neighbours (int): The number of surrounding layers to include.
-                       If 1, returns 8 neighbors; if 2, returns 24 neighbors (8 initial + 16 additional)
-
-    Returns:
-    - list: A list containing the paths of the 8 neighboring coastal flood files, if they exist.
-            The order of files in the list corresponds to the surrounding tiles
-            (e.g., top-left, top-center, top-right, left, center, right, bottom-left, bottom-center, bottom-right).
-    """
-    # if neighbours == 0: 
-    #     return [central_file]
-    
-    if include_central == True:
-        neighbour_files = [central_file]
-    else:
-        neighbour_files = []
-
-    file_name = os.path.basename(central_file)
-    tile_folder = os.path.dirname(central_file)
-    # find file coords
-    # match something like "N23_00_W123"
-    geocell_id_match = re.search(r"_(S|N)(\d+)_00_(W|E)(\d+)", file_name)
-    if geocell_id_match:
-        lat_direction = geocell_id_match.group(1)
-        lat_value = int(geocell_id_match.group(2))
-        lon_direction = geocell_id_match.group(3)
-        lon_value = int(geocell_id_match.group(4))
-
-        # find neighbour files
-        for i in range(lon_value - 1, lon_value + 2):
-            for j in range(lat_value - 1, lat_value + 2):
-                # Construct the file name for each surrounding tile
-                # england edge case is: W001
-                if lon_direction == "W" and lon_value == 1:
-                    for k in ["W", "E"]:
-                        tile_name = f"Copernicus_DSM_30_{lat_direction}{j:02d}_00_{k}{i:03d}_00_DEM_{coastal_flood_sufix}.shp"
-                        tile_path = os.path.join(tile_folder, tile_name)
-                        if os.path.exists(tile_path) and tile_path != central_file:
-                            neighbour_files.append(tile_path)
-
-                else:
-                    tile_name = f"Copernicus_DSM_30_{lat_direction}{j:02d}_00_{lon_direction}{i:03d}_00_DEM_{coastal_flood_sufix}.shp"
-                    tile_path = os.path.join(tile_folder, tile_name)
-                    if os.path.exists(tile_path) and tile_path != central_file:
-                        neighbour_files.append(tile_path)
-
-    return neighbour_files
-
-
-def build_expanded_tif(input_file, coastal_dataset, tmpdirname):
-    """
-    Builds an expanded GeoTIFF file from an input file and neighboring coastal flood files.
-
-    Parameters:
-    - input_file (str): Path to the input GeoTIFF file.
-    - coastal_dataset (list): List of coastal flood files.
-    - tmpdirname (str): Path to the temporary directory for storing intermediate files.
-
-    Returns:
-    - str: Path to the resulting expanded GeoTIFF file.
-    """
-    neighbours_list = collect_neighbouring_coastal_flood_files(input_file)
-    common_files = common_files_between_lists(neighbours_list, coastal_dataset)
-
-    # build expanded tif/vrt with neighboring dem tiles
-    # vrt
-    out_vrt = f"{tmpdirname}/{os.path.splitext(os.path.basename(input_file))[0]}_flooding.vrt"
-    gdal_build_vrt(common_files, out_vrt)
-
-    # make tif from vrt
-    expanded_tif = f"{tmpdirname}/{os.path.splitext(os.path.basename(input_file))[0]}_expanded.tif"
-    gdal_translate_cmd = f"gdal_translate -of GTiff -b 1 {out_vrt} {expanded_tif}"
-    os.system(gdal_translate_cmd)
-
-    return expanded_tif
-
-
-def coastal_flooding_pixel_prediction(input_file: str, sea_level = 10, coast_distance = 0, skip_if_exists = False):
+def coastal_flooding_pixel_prediction(input_file: str, sea_level = 10, coast_distance = 0, skip_if_exists = False, output_folder = None):
     """
     Main function that calculates potential rising sea levels from DEM file based on pixel selection principle.
     It loops over levels up to given maximum level in meters (Loop imitates flooding).
@@ -1597,11 +1378,11 @@ def coastal_flooding_pixel_prediction(input_file: str, sea_level = 10, coast_dis
         input_file(str): path to dem tile for which coastal flooding is calculated
         sea_level(int): max sea level wanted for calculation
     """
+    assert output_folder != None
     sea_level = sea_level + 1  # otherwise 10 will not be selected because of range()
     original_file = input_file
-    data_folder = config["coastal_flooding_EU_90m"]
-
-    output_file = f"{data_folder}/{basename_withoutext(original_file)}_coastal_flood.shp"
+    
+    output_file = f"{output_folder}/{basename_withoutext(original_file)}_coastal_flood.shp"
 
     if skip_if_exists == True:
         if os.path.exists(output_file):
@@ -1627,13 +1408,20 @@ def coastal_flooding_pixel_prediction(input_file: str, sea_level = 10, coast_dis
 
         # clip neighbours, only tiny bit of polygons is needed
         neighbours_shp_clipped = neighbours_shp.replace(".shp", "_clipped.shp")
+        if "USGS_13_n53e179_20210819_neighbours_clipped" in neighbours_shp_clipped:
+            return # TODO: delete this after that usgs dataset is done
         try:
-            if lat_direction == "N" and lon_direction == "W": # Americas
-                clip_vector_dataset(neighbours_shp, neighbours_shp_clipped, -lon+1.001, lat-0.001, -lon - 0.001, lat + 1.001)
+            if lat_direction.upper() == "N" and lon_direction.upper() == "W": # Americas
+                if "USGS" in original_file:
+                    usgs_lat = lat -1
+                    clip_vector_dataset(neighbours_shp, neighbours_shp_clipped, -lon+1.001, usgs_lat-0.001, -lon - 0.001, usgs_lat + 1.001)
+                else:
+                    clip_vector_dataset(neighbours_shp, neighbours_shp_clipped, -lon+1.001, lat-0.001, -lon - 0.001, lat + 1.001)
+
             elif lat_direction == "N" and lon_direction == "E": # Europe
                 clip_vector_dataset(neighbours_shp, neighbours_shp_clipped, lon+1.001, lat-0.001, lon - 0.001, lat + 1.001)
 
-        except Exception:
+        except Exception as e:
             neighbours_shp_clipped = None
 
         # pre select
@@ -1643,7 +1431,7 @@ def coastal_flooding_pixel_prediction(input_file: str, sea_level = 10, coast_dis
 
         sea_levels_simulation = (f"{tmpdirname}/{basename_withoutext(input_file)}_sea_levels_simulation.tif")
 
-        for level in range(0, sea_level, 1):
+        for level in tqdm(range(0, sea_level)):
             # selecting by height
             selected_sea_level_file = (f"{tmpdirname}/{basename_withoutext(input_file)}_sea_level_{level}.tif")
             gdal_select_pixels(preselected_file, selected_sea_level_file, level)
@@ -1655,13 +1443,8 @@ def coastal_flooding_pixel_prediction(input_file: str, sea_level = 10, coast_dis
             intersected_features_file = f"{tmpdirname}/{basename_withoutext(input_file)}_sea_level_intersected_{level}.shp"
             
             if level == 0 and coast_distance == 0:
-                geocellid = geocellid_from_file_name(input_file)
-                coastlines_query = f"""
-                SELECT DISTINCT wc.geom as geom FROM osm.world_coastlines wc
-                INNER JOIN osm.esa_global_dem_grid egdg
-                ON ST_Intersects(wc.geom, egdg.geometry)
-                WHERE egdg.geocellid = '{geocellid}'
-                """
+                geocellid = geocellid_from_file_name(input_file, regex_match)
+                coastlines_query = get_coastlines(geocellid)
                 gpd_extract_features_by_location(polygonized_pixels_file, coastlines_query, intersected_features_file)
 
             else:
@@ -1783,7 +1566,7 @@ def coastal_flooding_pixel_prediction(input_file: str, sea_level = 10, coast_dis
         polygonize_raster(sea_levels_simulation, polygonized_simulation)
         
         # clip back to tile size
-        clipped_dataset = (f"{tmpdirname}/{basename_withoutext(input_file)}_stimulation_clipped.shp")
+        clipped_dataset = (f"{tmpdirname}/{basename_withoutext(input_file)}_simulation_clipped.shp")
         clip_vector_dataset(polygonized_simulation, clipped_dataset, lon, lat, lon + 1, lat + 1)
 
         # last subtraction
@@ -1791,32 +1574,21 @@ def coastal_flooding_pixel_prediction(input_file: str, sea_level = 10, coast_dis
 
     return print(output_file, " is done")
 
-
-def common_files_between_lists(list1, list2, keep_order = True):
-    """
-    Finds common file names between two lists.
-
-    Parameters:
-    - list1 (list): First list of file names.
-    - list2 (list): Second list of file names.
-    - keep_order (bool): keeps the order of the first list if true
-
-    Returns:
-    - list: A list containing file names that are present in both input lists.
-    """
-    set1 = frozenset(list1)
-    set2 = frozenset(list2)
+def get_coastlines(geocellid):
+    coastlines_query = f"""
+                SELECT DISTINCT wc.geom as geom FROM {schema}.world_coastlines wc
+                INNER JOIN {schema}.esa_global_dem_grid egdg
+                ON ST_Intersects(wc.geom, egdg.geometry)
+                WHERE egdg.geocellid = '{geocellid}'
+                """
     
-    if keep_order == False:
-        common_files = list(set1.intersection(set2))
-    else:
-        common_files = [x for x in list1 if x in set2]    
+    return coastlines_query
 
-    return common_files
 
 def altitude_filter_files_list(dem_files: str, threshold_altitude=10, direction = 'descending'):
     """
-    filter all dem tiles with altitude lower than specified treshold
+    filter all dem tiles with altitude lower than specified treshold. 
+    Either opens the file and checks the minimum value, or calls gdalinfo for striping the metadata.
 
     Parameters:
         dem_files(str): a list of dem files
@@ -1824,23 +1596,50 @@ def altitude_filter_files_list(dem_files: str, threshold_altitude=10, direction 
     """
     tiles_with_low_altitude = []
 
-    for file_path in tqdm(dem_files):
-        dataset = gdal.Open(file_path)
+    # if esa dem tiles
+    if "Copernicus" or "usgs" in dem_files[0]:
+        for file_path in tqdm(dem_files):
+            dataset = gdal.Open(file_path)
 
-        if dataset is not None:
-            # Get altitude values as a NumPy array
-            altitude_array = dataset.ReadAsArray()
+            if dataset is not None:
+                # Get altitude values as a NumPy array
+                altitude_array = dataset.ReadAsArray()
 
-            # Check if any pixel has altitude less than the threshold
-            if direction == "descending":
-                if (altitude_array < threshold_altitude).any():
-                    tiles_with_low_altitude.append(file_path)
-            elif direction == "ascending":
-                if (altitude_array > threshold_altitude).any():
-                    tiles_with_low_altitude.append(file_path)
+                # Check if any pixel has altitude less than the threshold
+                if direction == "descending":
+                    if (altitude_array < threshold_altitude).any():
+                        tiles_with_low_altitude.append(file_path)
+                elif direction == "ascending":
+                    if (altitude_array > threshold_altitude).any():
+                        tiles_with_low_altitude.append(file_path)
 
-            # Close the dataset
-            dataset = None
+                # Close the dataset
+                dataset = None
+    
+    #if usgs tiles
+    elif "usgs2" in dem_files[0]: # usgs files have minmax values written in metadata
+        for file_path in tqdm(dem_files, total = len(dem_files)):
+            # Call gdalinfo command and capture its output
+            gdalinfo_output = subprocess.check_output(["gdalinfo", file_path]).decode("utf-8")
+            
+            # Parse the output to find the line containing "Minimum="
+            min_line = [line.strip() for line in gdalinfo_output.split('\n') if "Minimum=" in line]
+            
+            if min_line:
+                # Extract the part of the line containing the numerical value
+                min_value_part = min_line[0].split("=")[1].split(",")[0]
+                
+                try:
+                    # Convert the extracted part to a float
+                    minimum_value = float(min_value_part)
+                    
+                    # Check if the minimum value is smaller than 10
+                    if minimum_value < threshold_altitude:
+                        # Append the file path to the list
+                        tiles_with_low_altitude.append(file_path)
+                except ValueError:
+                    # Handle the case where conversion to float fails
+                    print(f"Error converting '{min_value_part}' to float for file '{file_path}'")
 
     return tiles_with_low_altitude
 
@@ -1869,10 +1668,18 @@ def has_empty_geometries(shapefile_path):
         return True
     
 
-def create_file_name_from_geocellid(geocell_id, folder_path):
+def create_file_name_from_geocellid(geocell_id, folder_path, additional_list = None):
+    """
+    function takes geocell id and creates absolute file path based on location and folder specified.
+
+    Parameters:
+        geocell_id(str): geocellid that contains information about coordinates of tile
+        folder_path(str): path to folder that contains the tiles
+    """
+
     regex_match = r'([NS])(\d+)([WE])(\d+)'
     geocell_id_match = re.match(regex_match, geocell_id)
-    
+
     if geocell_id_match:
         lat_direction = geocell_id_match.group(1)
         lat_value = geocell_id_match.group(2)
@@ -1881,8 +1688,19 @@ def create_file_name_from_geocellid(geocell_id, folder_path):
         if folder_path == config["esa_global_dem_90_dir"]:
             file_name = f"{folder_path}/Copernicus_DSM_30_{lat_direction}{lat_value}_00_{lon_direction}{lon_value}_00_DEM.tif"
 
-        elif folder_path == config["esa_global_dem_30_dir"]:
+        elif folder_path == config["esa_na_dem_30_dir"]:
             file_name = f"{folder_path}/Copernicus_DSM_10_{lat_direction}{lat_value}_00_{lon_direction}{lon_value}_00_DEM.tif"
+        
+        elif folder_path == config["esa_eu_dem_10_dir"]:
+            file_name = f"{folder_path}/Copernicus_DSM_03_{lat_direction}{lat_value}_00_{lon_direction}{lon_value}_00_DEM.tif"
+        
+        elif folder_path == config["usgs_dem_dir"]:
+            lat_value = int(lat_value) + 1
+            file_name = f"USGS_13_{lat_direction.lower()}{lat_value}{lon_direction.lower()}{lon_value}_"
+
+            for file in additional_list: # the last few digits of file name are missing, this is adds them
+                if file_name in file:
+                    file_name = file
 
         return file_name
     else:
@@ -1898,10 +1716,10 @@ def get_grid_and_coastline_gdf(continent = 'Europe'):
     # only coastline tiles
     grid_coastlines_query = f"""
     SELECT DISTINCT geocellid, grid.geometry
-    FROM osm.esa_global_dem_grid as grid 
-    JOIN osm.world_continents_boundaries wcb
+    FROM {schema}.esa_global_dem_grid as grid 
+    JOIN {schema}.world_continents_boundaries wcb
     ON ST_Intersects(grid.geometry, wcb.geometry)
-    JOIN osm.world_water_bodies_esri wwb
+    JOIN {schema}.world_water_bodies_esri wwb
     ON ST_Intersects(grid.geometry, wwb.geom)
     WHERE wcb.continent = '{continent}' AND wwb.type = 'Ocean or Sea';
     """
@@ -1910,23 +1728,23 @@ def get_grid_and_coastline_gdf(continent = 'Europe'):
     SELECT DISTINCT  ON (geocellid) geocellid, geometry, distance
     FROM (
 	SELECT DISTINCT geocellid, grid.geometry, 0 as distance
-	FROM osm.esa_global_dem_grid as grid 
-	JOIN osm.world_continents_boundaries wcb
+	FROM {schema}.esa_global_dem_grid as grid 
+	JOIN {schema}.world_continents_boundaries wcb
 	ON ST_Intersects(grid.geometry, wcb.geometry)
-	JOIN osm.world_water_bodies_esri wwb
+	JOIN {schema}.world_water_bodies_esri wwb
 	ON ST_Intersects(grid.geometry, wwb.geom)
 	WHERE wcb.continent = 'Europe' AND wwb.type = 'Ocean or Sea'
 	UNION
 	SELECT DISTINCT grid.geocellid, grid.geometry, 1 as distance
 	FROM (
 		SELECT DISTINCT grid.geometry
-		FROM osm.esa_global_dem_grid as grid 
-		JOIN osm.world_continents_boundaries wcb
+		FROM {schema}.esa_global_dem_grid as grid 
+		JOIN {schema}.world_continents_boundaries wcb
 		ON ST_Intersects(grid.geometry, wcb.geometry)
-		JOIN osm.world_water_bodies_esri wwb
+		JOIN {schema}.world_water_bodies_esri wwb
 		ON ST_Intersects(grid.geometry, wwb.geom)
 		WHERE wcb.continent = 'Europe' AND wwb.type = 'Ocean or Sea') as subquery,
-	osm.esa_global_dem_grid as grid 
+	{schema}.esa_global_dem_grid as grid 
 	WHERE ST_touches(grid.geometry, subquery.geometry)) as united
 	;
     """
@@ -1936,7 +1754,7 @@ def get_grid_and_coastline_gdf(continent = 'Europe'):
     return coastline_grid_gdf
 
 
-def sea_level_precheck(files_dir: str, continent = "Europe"):
+def sea_level_precheck(files_dir: str):
     """
     this function iterates over grid of dem files and check if dem tiles are close to sea and if they contain pixels with latitude lower than 10m.
 
@@ -1945,35 +1763,34 @@ def sea_level_precheck(files_dir: str, continent = "Europe"):
         2. Raster check: altitude and extent - which raster dem tiles are lower than 10m and in given extent   
         3. Combine - create list by which the sea_level iterration will occur
     """
-    low_altitude_files = config["low_altitude_dem_files"]
+    if files_dir == config["esa_global_dem_90_dir"]:
+        continent = "North America"
 
-    overwrite = True
-    if overwrite == True or os.path.exists(low_altitude_files) == False:
-        files_list = geofilter_paths_list(files_dir, by = "continent", c_name=continent)
-        low_dem_tiles = altitude_filter_files_list(files_list)
-    #     file_paths_to_write = ", ".join(low_dem_tiles)
+    elif files_dir == config["esa_na_dem_30_dir"]:
+        continent = "North America"
+    
+    elif files_dir == config["esa_eu_dem_10_dir"]:
+        continent = "Europe"
+    
+    elif files_dir == config["usgs_dem_dir"]:
+        continent = "North America"
 
-    #     with open(low_altitude_files, 'w') as file:
-    #         file.write(file_paths_to_write) 
-
-    # a part for processing (or skipping the processing) of low altitude files
-    # elif os.path.exists(low_altitude_files):
-    #     with open(low_altitude_files, 'r') as file:
-    #         low_dem_tiles = file.read()
-    #         low_dem_tiles = low_dem_tiles.split(', ')
-
+    low_dem_tiles = get_low_altitude_dem_files_list(files_dir, continent)
 
     if continent == "North America":
-        coastal_neighbours_df = gpd.read_file(config["na_coastal_flooding_neighbours"]) # tiles for NA
+        coastal_neighbours_df = gpd.read_file(config["coastal_flooding_selected_tiles_NA"]) # tiles for NA
         # if tiles grid file was created by merging vector layers n stuff
         coastal_neighbours_df['distance'] = coastal_neighbours_df['layer'].str.extract(r'(\d+)', expand=False).astype(int)
 
     elif continent == "Europe":
         coastal_neighbours_df = get_grid_and_coastline_gdf(continent) #tiles for EU
-
+        
     # now the sorting part
-    folder_path = config["esa_global_dem_90_dir"]
-    coastal_neighbours_df['file_path'] = coastal_neighbours_df['geocellid'].apply(create_file_name_from_geocellid, args=(folder_path,))
+    # create file paths   
+    if "usgs" in files_dir:
+        coastal_neighbours_df['file_path'] = coastal_neighbours_df['geocellid'].apply(create_file_name_from_geocellid, args=(files_dir,low_dem_tiles))
+    else: 
+        coastal_neighbours_df['file_path'] = coastal_neighbours_df['geocellid'].apply(create_file_name_from_geocellid, args=(files_dir,))
 
     # remove all the files that are not in low altutide filtered list, and sort by coastal distance
     coastal_neighbours_df = coastal_neighbours_df[coastal_neighbours_df['file_path'].isin(low_dem_tiles)]
@@ -1983,3 +1800,56 @@ def sea_level_precheck(files_dir: str, continent = "Europe"):
     coastal_neighbours_dict = dict(zip(coastal_neighbours_df['file_path'], coastal_neighbours_df['distance']))
 
     return coastal_neighbours_dict
+
+def get_low_altitude_dem_files_list(files_dir, continent):
+    """
+    Returns a list of low altitude Digital Elevation Model (DEM) files for the specified directory.
+
+    If a list of files is already written in a text file, the function retrieves the list from the file,
+    skipping the processing to improve efficiency.
+
+    Parameters:
+    - files_dir (str): The directory path where DEM files are located.
+    - continent (str): The continent name for filtering DEM files. Required if 'files_dir' is not USGS data.
+
+    Returns:
+    - low_dem_tiles (list of str): A list of file paths to low altitude DEM tiles.
+
+    Note:
+    - If 'files_dir' corresponds to specific DEM directories such as ESA Global DEM 90, ESA North America DEM 30,
+      ESA Europe DEM 10, or USGS DEM, predefined coastal flooding tiles are used for low altitude files.
+    - Otherwise, the function filters DEM files based on the specified continent and altitude criteria.
+
+    """
+    if files_dir == config["esa_global_dem_90_dir"]:
+        low_altitude_files = config["coastal_flooding_tiles_NA_ESA_30"]
+
+    elif files_dir == config["esa_na_dem_30_dir"]:
+        low_altitude_files = config["coastal_flooding_tiles_NA_ESA_30"]
+    
+    elif files_dir == config["esa_eu_dem_10_dir"]:
+        low_altitude_files = config["coastal_flooding_tiles_EU_10"]
+    
+    elif files_dir == config["usgs_dem_dir"]:
+        low_altitude_files = config["coastal_flooding_tiles_NA_USGS_10"]
+
+    overwrite = False
+    if overwrite == True or os.path.exists(low_altitude_files) == False:
+        if "usgs" in files_dir:
+            files_list = absolute_file_paths(files_dir, '.tif')
+        else:
+            files_list = geofilter_paths_list(files_dir, by = "continent", c_name=continent)
+
+        files_list = list(files_list)
+        low_dem_tiles = altitude_filter_files_list(files_list)
+        file_paths_to_write = ", ".join(low_dem_tiles)
+
+        with open(low_altitude_files, 'w') as file:
+            file.write(file_paths_to_write) 
+
+    # a part for processing (or skipping the processing) of low altitude files
+    elif os.path.exists(low_altitude_files):
+        with open(low_altitude_files, 'r') as file:
+            low_dem_tiles = file.read()
+            low_dem_tiles = low_dem_tiles.split(', ')
+    return low_dem_tiles
