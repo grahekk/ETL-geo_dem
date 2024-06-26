@@ -10,7 +10,6 @@ from statistics import mean
 # from . import pipeline_transform_vrt_gdal
 
 from .pipeline_transform_vrt_gdal import make_file_path
-sys.path.append("/home/nikola/4_north_america/GeoDataPump/scripts/")
 import settings
 config = settings.get_config()
 
@@ -140,9 +139,6 @@ def transform_slope_flow():
     dem_file = config["esa_na_dem_90_vrt"]
     slope_file = config["NA_slope"]
     rescaled_slope_file = config["NA_slope_rescaled"]
-
-    # dem_file = "/mnt/volume-nbg1-1/shared/nikola/ESA_global_dem_90m/Copernicus_DSM_30_N45_00_E015_00_DEM.tif"
-    # slope_file = "/mnt/volume-nbg1-1/shared/nikola/NA_slope_N45_E015.tif"
 
     # transform_raster(dem_file, slope_file, transform_type="slope")
     raster_rescale_percent_to_degree(slope_file, rescaled_slope_file)
