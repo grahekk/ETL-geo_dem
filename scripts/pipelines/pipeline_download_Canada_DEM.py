@@ -116,6 +116,3 @@ def download_canadian_dem_flow():
     # then delete these tif files and put them to parent directory
     delete_non_tif_files(canada_destination_directory_unzip, '.tif')
     move_files_from_subfolder_to_parent(canada_destination_directory_unzip)
-
-if __name__ == '__main__':
-    download_canadian_dem_flow()
