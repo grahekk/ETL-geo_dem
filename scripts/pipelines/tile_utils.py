@@ -4,7 +4,6 @@ import re
 import math
 from .pipeline_transform_vrt_gdal import gdal_build_vrt
 
-sys.path.append("/home/nikola/4_north_america/GeoDataPump/scripts")
 import settings
 
 config = settings.get_config()
@@ -13,8 +12,6 @@ USGS_dem_regex = settings.get_config_params().USGS_dem_files_regex_match
 ESA_dem_files_regex_match = settings.get_config_params().ESA_dem_files_regex_match
 
 coastlines = config["NA_coastlines"]
-# coastlines = "/home/nikola/coastline_45_14_kvarner.shp"
-# coastlines = kvarner_coastline
 regex_match = ESA_dem_files_regex_match
 regex_match = USGS_dem_regex
 
