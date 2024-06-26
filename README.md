@@ -1,6 +1,6 @@
-# North America - Data Pipeline and ETL Project
+# Geospatial Data Pipeline and ETL Project
 
-This project is designed to help you organize and automate the process of downloading, transforming, and loading spatial data for North America from various sources into a PostgreSQL database. It follows a modular structure for better maintainability and scalability. 
+This project is designed to help you organize and automate the process of downloading, transforming, and loading spatial data for Europe and North America from various sources into a PostgreSQL database. It follows a modular structure for better maintainability and scalability. 
 It contains scripts for downloading spatial files for North America. Scripts are called pipelines as they are organized into structure that follows ETL paradigm.
 
 
