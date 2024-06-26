@@ -8,7 +8,6 @@ from grass.pygrass.modules.shortcuts import general as g
 from grass.pygrass.modules.shortcuts import raster as r
 
 
-sys.path.append("/home/nikola/4_north_america/GeoDataPump/scripts/")
 import settings
 config = settings.get_config()
 
