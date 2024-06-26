@@ -11,7 +11,6 @@ from .pipeline_transform_vrt_gdal import geofilter_paths_list, gdal_build_vrt, a
 from . import model_pipeline
 from .pipeline_transform_sea_level import sea_level_precheck, create_file_name_from_geocellid, coastal_flooding_pixel_prediction
 
-sys.path.append("/home/nikola/4_north_america/scripts/")
 import settings
 
 # load configuration
