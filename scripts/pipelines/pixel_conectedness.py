@@ -33,7 +33,6 @@ from .pipeline_transform_sea_level import (
     subtract_one_from_shapefile_attribute,
     get_coastlines)
 
-sys.path.append("/home/nikola/4_north_america/GeoDataPump/scripts")
 import settings
 
 config = settings.get_config()
