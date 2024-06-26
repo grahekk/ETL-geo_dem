@@ -10,8 +10,6 @@ import numpy as np
 from statistics import mean
 import rasterio
 
-# sys.path.append("/home/nikola/4_north_america/scripts")
-
 # load configuration
 import settings
 config = settings.get_config()
