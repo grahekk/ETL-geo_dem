@@ -58,17 +58,3 @@ def get_url_from_file(data_urls:str):
         urls = urls_file.readlines()
     urls = [line[:-1] for line in urls if line[-1]=='\n']
     return urls
-
-
-# Usage:
-USGS_DEM_FOLDER = "/mnt/volume-nbg1-1/shared/nikola/USGS_DEM_10m"
-USGS_DEM_URLS = "/home/nikola/4_north_america/USGS_dem_urls.txt"
-NASA_GLOBAL_DEM_FOLDER = "/mnt/volume-nbg1-1/shared/nikola/NASA_DEM"
-NASA_GLOBAL_DEM_URLS = "/home/nikola/4_north_america/data/NASA_global_dem_urls.txt"
-
-output_folder = NASA_GLOBAL_DEM_FOLDER
-data_urls = NASA_GLOBAL_DEM_URLS
-
-def download_us_dem_flow():
-    urls = get_url_from_file(data_urls)
-    download_files_from_urls(urls, output_folder)
