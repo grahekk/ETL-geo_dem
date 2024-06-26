@@ -76,8 +76,6 @@ def dump_local_db(schema:str, table_name:str, dump_database_name:str, dump_file:
     print(f"pg dump went: {p2}")
 
 
-# pg_dump -d mnt -t {data.na_coastal_flooding_30m_4326} -Fc -f db_dump.sql -U nikola -p 5432 -h localhost -v -a
-
 
 def load_to_aws_restore(dump_file:str, host_name:str, restore_database_name:str, username:str):
     """
