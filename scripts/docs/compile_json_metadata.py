@@ -12,7 +12,7 @@ from scripts import settings
 
 # load configuration
 config = settings.get_config()
-metadata_description_path = "/home/nikola/4_north_america/GeoDataPump/scripts/docs/metadata_description.yaml"
+metadata_description_path = "metadata_description.yaml"
 with open(metadata_description_path, 'r') as file:
     metadata_description = yaml.safe_load(file)
 
