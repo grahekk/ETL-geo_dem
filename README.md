@@ -1,6 +1,6 @@
 # Geospatial Data Pipeline and ETL Project
 
-This project is designed to help you organize and automate the process of downloading, transforming, and loading spatial data for Europe and North America from various sources into a PostgreSQL database. It follows a modular structure for better maintainability and scalability. 
+This project is designed to help you organize and automate the process of downloading, transforming, and loading spatial data for North America from various sources into a PostgreSQL database. It follows a modular structure for better maintainability and scalability. 
 It contains scripts for downloading spatial files for North America. Scripts are called pipelines as they are organized into structure that follows ETL paradigm.
 
 
@@ -13,18 +13,45 @@ as well as downoad.sh file with urls pointing to dem tiles
 
     - **dem files**: sources for this pipelines are US, NASA and Canadian official pages. More is described in *Data Sources* headline.
 
-- **scripts**: This directory contains Python scripts that make up data pipeline and ETL process.
+- **scripts**: This directory contains Python scripts that make up the data pipeline and ETL process.
 
-    - **pipeline_download**: This subdirectory contains modules related to data download.
+    - **pipelines**: This subdirectory contains modules related to data download, transformation, and loading processes.
 
-        - `pipeline_download_Canada_DEM.py`: Functions for downloading Canadian DEM data.
-        - `pipeline_download_USGS_DEM.py`: Functions for downloading USGS DEM data.
-        - `pipeline_download_utils.py`: Utility functions shared among download modules.
-        - `pipeline_download_WMS.py`: Functions for downloading data from a Web Map Service (WMS).
+        - `model_data.py`: Module containing classes and blueprints for data structure.
+        - `model_pipeline.py`: Contains the main functions and classes for creating and managing the data pipeline
+        - `pipeline_download_Canada_DEM.py`: Functions for downloading Canadian DEM (Digital Elevation Model) data.
+        - `pipeline_download_USGS_DEM.py`: Functions for downloading USGS (United States Geological Survey) DEM data.
+        - `pipeline_download_utils_soils.py`: Utility functions shared among download modules and specific functions for downloading soil data.
+        - `pipeline_download_WMS_canada.py`: Functions for downloading data from a Web Map Service (WMS) and official Canadian geospatial data.
+        - `pipeline_download_s3_global.py`: Functions for downloading global datasets from Amazon S3 storage
+        - `pipeline_flows.py`: Handles the management and execution of different data flows within the pipeline
+        - `pipeline_load_localPG.py`: Functions for loading data into a local PostgreSQL database
+        - `pipeline_transform_grass.py`: Functions for transforming data using GRASS GIS tools
+        - `pipeline_transform_qgis_resample.py`: Functions for resampling data using QGIS (Quantum GIS) utilities
+        - `pipeline_transform_sea_level.py`: Framework for processing and creating the sea level rise data from DEM tiles
+        - `pipeline_transform_soils.py`: Functions for transforming soil data for further analysis.
+        - `pipeline_transform_vrt_gdal.py`: Functions for creating and transforming VRT (Virtual Raster) datasets using GDAL (Geospatial Data Abstraction Library).
+        - `pixel_conectedness.py`: Functions for analyzing pixel connectedness in raster datasets
+        - `tile_utils.py`: Utility functions for handling and processing data tiles
 
     - `main.py`: The main script that orchestrates the entire data pipeline. It imports functions from the pipeline modules and executes them in the desired order.
+    - `config.yaml`: Configuration file containing settings and parameters for the data pipeline.
+    - `settings.py`: Contains configuration settings and constants used throughout the pipeline scripts.
+
+- **qgis_other**: This directory contains Python scripts for using QGIS (PyQGIS) API utilitie.
+        - `qgis_create_graphics.py`: Functions for creating graphical representations of geospatial data using QGIS.
+        - `qgis_create_grid.py`: Functions for creating spatial grids using QGIS.
+        - `qgis_run_app.py`: Script for running a QGIS application and executing QGIS functions programmatically.
+
+- **docs**: This directory contains Python scripts for generating data documentation.
+        - `compile_json_metadata.py`: Compiles metadata from various sources into a JSON format
+        - `update_README_tables.py`: Updates tables in the README file with the latest data and metadata information.
+        - `word_documentation_creation.py`: Generates Word documents for data documentation purposes.
+
 
 ## How to Use
+
+0. Git clone this repo
 
 1. Set up a virtual environment and install the required dependencies.
 
