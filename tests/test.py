@@ -1,5 +1,5 @@
 from test_pixel_utils import get_pixel_value_from_geotiff, get_tif_pixel_value, land_cover_percentage, clip_by_extent_gdal, query_pixel_value_rasterio
-from test_create_coordinates import read_coordinates, enrich_existing_shp
+from create_testing_coordinates import read_coordinates, enrich_existing_shp
 import yaml
 import pandas as pd
 import geopandas as gpd
@@ -9,22 +9,36 @@ from statistics import mean
 import multiprocessing
 import random
 
-sys.path.append("/home/nikola/4_north_america/scripts/")
 import settings
 config = settings.get_config()
+from scripts.pipelines import model_data
 
-testing_file_usa = config["usa_dem_vrt"]
+# testing_file_usa = config["usa_dem_vrt"]
 testing_file_cad = config["canada_dem_vrt"]
 testing_file_global = config["nasa_global_dem_vrt"]
 esa_global_dem_90_vrt = config["esa_global_dem_90_vrt"]
-na_aspect_categorized = config["NA_aspect_categorized"]
+na_aspect_categorized = config["NA_aspect"]
 # test_coords_path = "/home/nikola/grid_clipped.shp"
-test_coords_path = "/home/nikola/grid_clipped_enrich.shp"
+test_coords_path = "grid_clipped_enrich.shp"
 # test_coords_path = "/home/nikola/test_coordinates.csv"
-test_coords_path = "/home/nikola/continents_grid_clipped_enrich.shp"
-test_coords_path = "/home/nikola/4_north_america/tests/NA_test_coordinates.csv"
+test_coords_path = "continents_grid_clipped_enrich.shp"
+test_coords_path = "/tests/NA_test_coordinates.csv"
 
 test_coords = read_coordinates(test_coords_path)
+
+def measure_execution_time(func):
+    """
+    Decorator function to measure the execution time of another function.
+
+    Parameters:
+    - func (callable): The function to be decorated.
+    """
+    def wrapper(*args, **kwargs):
+        start_time = time.time()
+        result = func(*args, **kwargs)
+        execution_time = round(time.time() - start_time, 2)
+        return result, execution_time
+    return wrapper
 
 
 def test_points(testing_file, test_coords, test_func = ""):
@@ -190,8 +204,6 @@ def test_land_cover():
 
 
 def test_data_esa_dem_continents(esa_global_dem_90_vrt, singleprocess_test_points):
-    enrich_existing_shp("/home/nikola/continents_grid_clipped.shp")
-    test_coords_path = "/home/nikola/continents_grid_clipped_enrich.shp"
     test_coords = read_coordinates(test_coords_path)
     singleprocess_test_points("esa_world_dem", esa_global_dem_90_vrt, test_coords)
 
@@ -222,36 +234,25 @@ if __name__ == "__main__":
     # test_land_cover()
     # esa_dem_continents_flow(esa_global_dem_90_vrt, singleprocess_test_points)
 
-    # # the test
+    # the test
     # test_coords = read_coordinates(test_coords_path)
     # save_test_results("na_aspect_categorized", na_aspect_categorized, test_coords)
 
     # # cutting test
     lon, lat = 35.133991822016135, -119.71258190229405 #san andreas fault
-    # lon, lat = 38.69014,-92.26247
-    # lon, lat = 62.8487,-128.9834 #canada
-    lon, lat = 37.59747, -113.87625
-    lon, lat = -129.2448788, 62.4509572
     lat, lon = 62.7105955, -128.7794029
     lat, lon = 33.606916,-115.266720
+    lat, lon = 53.20766610573713, 6.474056848842674 # netherlands
     # lat, lon = 33.611793,-115.262013
     # lat, lon = 33.603675,-115.272724
-    # lat, lon = 33.675886,-115.353531
-    # lat, lon = 33.673413,-115.368096
-    # lat, lon = 33.672987,-115.365180
-    # lat, lon = 33.683578,-115.367670
-    # # slope_raster = "/mnt/volume-nbg1-1/shared/nikola/NA_slope.tif"
-    # # slope_cut = "./slope_result.tif"
-    
-    raster_in = config["NA_slope_rescaled"]
-    raster_cut = "./slope_result.tif"
-    clip_by_extent_gdal(lat, lon, raster_cut, raster_in)
 
+    # slope_cut = "./slope_result.tif"
+    
+    raster_in = config["NA_slope"]
+    raster_cut = "./slope_result.tif"
+    # clip_by_extent_gdal(lat, lon, raster_cut, raster_in)
+    r = model_data.get_EU_coastal_flooding_10(lat, lon)
+    print(r)
     # test_data_aspect_categories()
     # test_data_slope_rescaled()
 
-    # value = query_pixel_value(aspect_raster, lat, lon) #rasterio novi
-    # value = get_pixel_value_from_geotiff(aspect_raster, lat, lon) #rasterio početni
-    # print(value, " rasterio")
-    # value = get_tif_pixel_value(lat, lon, aspect_raster) #gdal
-    # print(value, " gdal")

@@ -35,7 +35,7 @@ Processing.initialize()
 
 from osgeo import gdal
 
-PATH_TMP = '/home/nikola/4_north_america/data/tmp_files'
+PATH_TMP = "."
 
 def print_progress(subject_function:callable, function_args:list, count:int, total_count:int, fun_times):
     start_time = time.time()
@@ -93,12 +93,9 @@ def get_pixel_value_from_geotiff(geotiff_path, lat, lon):
         return None
 
 
-def get_altitude_from_dem_30m(lat, lon, path_tmp = PATH_TMP, infile = '', interpolate = True):
-
+def get_altitude_from_dem_30m(lat, lon, path_tmp = "./tmp", infile = '', interpolate = True):
     """
-    18.07.2022. Dohvacanje podatka o nadmorskoj visini iz TIF DEM30 m (cijela Europa)
-    12.09.2022. Napravljena korekcija ukoliko je tocka izvan domene jer domena TIF-a ne odgovara domeni modela VRACA SE nan
-    19.09.2022. Dodana opcija interpolacije da interpolira TIF ako je interpolacija na True (True je definirano unaprijed)
+    get value from a pixel dem 30m
     """
 
     dem, err = subprocess.Popen(f'exec gdallocationinfo -valonly -xml -wgs84 {infile} {lon} {lat}', stdout=subprocess.PIPE, shell=True, universal_newlines=True).communicate()
@@ -127,20 +124,26 @@ def get_altitude_from_dem_30m(lat, lon, path_tmp = PATH_TMP, infile = '', interp
             # vracaj neinterpoliranu vrijednost
             return round(float(dem[2][dem[2].find('<Value>')+len('<Value>'):dem[2].rfind('</Value>')]), 2)
 
-def get_tif_pixel_value(lat, lon, input_raster, in_domain_nodata_code=None, out_of_domain_code=None):
-    '''
-    23.08.2023. (Lana) Funkcija koja prema lat, lon i kodova za in domain no data i out of domain
-                        iz TIF rastera vadi vrijednost piksela i vraca njegovu vrijednost. 
-                        Ako je piksel in domain, no data -> vraca None
-                        Ako je piksel out of domain -> vraca np.nan
-    '''
     
-    args = ['gdallocationinfo', '-valonly', '-wgs84', '-b', '1', input_raster, str(lon), str(lat)]
-    result = subprocess.run(args, capture_output=True, text=True).stdout
-    result_clean = result.rstrip("\n")
-    # result1 = result1.rstrip("\n255")
-    if result_clean: # ako string nije prazan
-        pixel_value=float(result_clean)
+def get_tif_pixel_value(lat, lon, infile_tif, in_domain_nodata_code=None, out_of_domain_code=None):
+    """At chosen point given in EPSG 4326 coordinates, returns a value from provided tif file. 
+     
+    Args:
+        lat (float): Latitude of chosen point (EPSG 4326).
+        lon (float): Longitude of chosen point (EPSG 4326).
+        infile_tif (str): Path to source tif file.
+        in_domain_nodata_code (int, optional): Value from tif for points with no data. Defaults to None.
+        out_of_domain_code (int, optional): Value from tif for points out of domain. Defaults to None.
+
+    Returns:
+        float: Value at chosen point. If a value corresponds to in_domain_nodata_code, returns None. If a value corresponds to out_of_domain_code, returns NaN. 
+    """
+    
+    args = ['gdallocationinfo', '-valonly', '-wgs84', infile_tif, str(lon), str(lat)]
+    result1 = subprocess.run(args, capture_output=True, text=True).stdout.rstrip()
+    
+    if result1: # ako string nije prazan
+        pixel_value=float(result1)
         
     else: # ako je (None je), izvan domene je -> vrati np.nan
         return np.nan

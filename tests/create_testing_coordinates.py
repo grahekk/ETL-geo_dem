@@ -176,7 +176,4 @@ def enrich_existing_shp(file_path:str):
     # save_testing_points(points)
     return new_file
 
-if __name__ == "__main__":
-    # create_testing_points()
-    enrich_existing_shp("/home/nikola/continents_grid_clipped.shp")
 
