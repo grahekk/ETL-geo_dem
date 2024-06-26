@@ -9,7 +9,6 @@ import sys
 from sqlalchemy import func
 import psycopg2
 
-sys.path.append("/home/nikola/4_north_america/GeoDataPump/scripts/")
 import settings
 database_url = settings.get_database_url()
 aws_database_url = settings.get_aws_database_url()
