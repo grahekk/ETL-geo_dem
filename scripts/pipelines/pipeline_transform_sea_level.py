@@ -31,7 +31,6 @@ from .model_data import get_geocellid, get_product_name
 from .tile_utils import generate_neighbouring_coordinates, expand_tile, collect_neighbouring_coastal_flood_files, extract_coordinates_from_tile_name
 
 # Define the database connection parameters
-sys.path.append("/home/nikola/4_north_america/GeoDataPump/scripts")
 import settings
 
 config = settings.get_config()
@@ -50,7 +49,6 @@ USGS_dem_regex = settings.get_config_params().USGS_dem_files_regex_match
 ESA_dem_files_regex_match = settings.get_config_params().ESA_dem_files_regex_match
 
 coastlines = config["NA_coastlines"]
-# coastlines = "/home/nikola/coastline_45_14_kvarner.shp"
 # coastlines = kvarner_coastline
 regex_match = ESA_dem_files_regex_match
 regex_match = USGS_dem_regex
@@ -204,11 +202,11 @@ def contour_sea_level(lat: int, lon: int, res: int, elevation: int):
     if res == 90:
         input_dem_file = f"Copernicus_DSM_30_N{lat}_00_E0{lon}_00_DEM.tif"
         input_dem_file = (
-            f"/mnt/volume-nbg1-1/shared/nikola/ESA_global_dem_90m/{input_dem_file}"
+            f"{config["esa_global_dem_90_dir"]}/{input_dem_file}"
         )
     if res == 10:
         input_dem_file = f"Copernicus_DSM_03_N{lat}_00_E0{lon}_00_DEM.tif"
-        input_dem_file = f"/mnt/volume-nbg1-1/satellite/eu_dem/dem10m/{input_dem_file}"
+        input_dem_file = f"{config["esa_eu_dem_10_dir"]}/{input_dem_file}"
 
     # Elevation ranges for each meter from 1 to 10
     elevation_range = (0, elevation)
@@ -239,14 +237,6 @@ def contour_sea_level(lat: int, lon: int, res: int, elevation: int):
         clip_vector_dataset(
             contours_file, contours_file, lon, lat, lon + 1, lat + 1
         )
-
-        # imitate flooding with loops
-        contours_file = f"/home/nikola/contours_45_14.shp"
-        dst_shapefile_path = f"{tmpdirname}/dst_contours_45_14.shp"
-        coastline_flooding_shp = f"coastal_flooding_{lat}_{lon}.shp"
-        # flooding_selection(contours_file, coastlines, coastline_flooding_shp)
-        # the function that utilizes gdal and queryes: update_flood_attribute_iterative
-        # update_flood_attribute_iterative(dst_shapefile_path, contours_file, coastlines)
 
     # select_contours_by_height_and_intersection(contours_file,  coastlines, dst_shapefile_path)
 
