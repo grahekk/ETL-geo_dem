@@ -4,7 +4,7 @@ from docx import Document
 from docx.shared import Inches
 from docx.enum.text import WD_PARAGRAPH_ALIGNMENT
 
-metadata_list_path = "/home/nikola/4_north_america/GeoDataPump/scripts/docs/metadata_list.json"
+metadata_list_path = "metadata_list.json"
 with open(metadata_list_path, "r") as file:
     metadata_list = json.load(file)
 
@@ -62,7 +62,7 @@ def create_dem_documentation():
                 cell.paragraphs[0].alignment = WD_PARAGRAPH_ALIGNMENT.JUSTIFY
 
     # Save the document
-    doc.save('/home/nikola/4_north_america/GeoDataPump/scripts/docs/dem_documentation.docx')
+    doc.save('dem_documentation.docx')
 
 if __name__ == "__main__":
     create_dem_documentation()
