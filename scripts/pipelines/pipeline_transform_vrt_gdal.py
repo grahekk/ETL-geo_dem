@@ -21,7 +21,7 @@ from .model_data import get_geocellid
 
 #import python path from qgis so that gdal from osgeo can be loaded
 sys.path.append('/usr/lib/python3/dist-packages')
-from osgeo import gdal 
+# from osgeo import gdal 
 
 
 def absolute_file_paths(directory:str, extension:str): # ensure absolute paths
