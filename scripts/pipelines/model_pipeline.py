@@ -11,7 +11,7 @@ import geopandas as gpd
 from .pipeline_download_s3_global import download_tree_cover_density
 from .pipeline_load_localPG import import_to_local_db, dump_local_db, load_to_aws_restore, load_to_aws_shp
 from .pipeline_transform_vrt_gdal import extract_values_gdal, gdal_build_vrt, absolute_file_paths, geofilter_paths_list, create_neighbour_vrt, clip_tile_by_dimensions, gdal_resample, transform_raster, rescale_raster, filter_by_geocellid, categorize_aspect
-from .pipeline_transform_qgis_resample import transform_geomorphon_qgis, geomorphon_chunky
+# from .pipeline_transform_qgis_resample import transform_geomorphon_qgis, geomorphon_chunky
 from .pipeline_download_utils_soils import unzip_file
 from .pipeline_transform_sea_level import sea_level_precheck, basename_withoutext, coastal_flooding_pixel_prediction
 import settings
@@ -134,7 +134,7 @@ class GisDataDownloader:
         """
         Download raster tiles for tree cover density data.
         """
-        download_tree_cover_density(extent="North America")
+        download_tree_cover_density(extent="global")
 
 
 class DataTransformer:
