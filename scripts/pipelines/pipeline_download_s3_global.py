@@ -3,18 +3,13 @@ import os
 import sys
 import re
 from bs4 import BeautifulSoup
-import geopandas as gpd
 from shapely.geometry import shape
 from botocore.exceptions import NoCredentialsError
 import subprocess
 import xml.etree.ElementTree as ET
-import lxml
-import time
-from statistics import mean
 import datetime
-from dotenv import load_dotenv
-import psycopg2
 import settings
+from tqdm import tqdm
 
 from .pipeline_download_utils_soils import unzip_file, download_data, print_progress, move_tif_files_to_parent_directory, delete_non_matching_files_and_subdirectories
 from .pipeline_transform_vrt_gdal import absolute_file_paths, filter_by_geocellid
@@ -24,6 +19,11 @@ config = settings.get_config()
 schema = settings.get_schema()
 conn_parameters = settings.get_conn_parameters()
 data_folder_path = settings.get_data_path()
+config_params = settings.get_config_params()
+
+north_american_bounds = config_params.north_american_bounds
+europe_bounds = config_params.europe_bounds
+global_bounds = config_params.global_bounds
 
 # TODO: print progress wrapper
 
@@ -134,15 +134,26 @@ def download_tree_cover_density(urls_file = "TCD_urls_global_30m.txt", extent = 
     
     # Generate tile URLs within the bounding box of North America
     if extent == "North America":
-        for lat in range(10, 90, 10):
-            for lon in range(40, 180, 10):
-                if lon < 100:
-                    lon = f"0{lon}"
-                tile_url = f"https://storage.googleapis.com/earthenginepartners-hansen/GFC2015/Hansen_GFC2015_treecover2000_{lat}N_{lon}W.tif"
-                tile_urls.append(tile_url)
-    
+        boundary = north_american_bounds
+    elif extent == "europe":
+        boundary = north_american_bounds
+    elif extent == "global":
+        boundary = global_bounds
     else:
-        raise ValueError("Invalid extent. Use 'North America'.")
+        raise ValueError("Invalid extent. Use propper extent or boundary.")
+    
+    for lat in range(int(boundary["min_lat"]), int(boundary["max_lat"])+10, 10):
+        lat_direction = "N" if lat >= 0 else "S"
+        lat = abs(lat)
+        lat = f"{lat:02d}"
+
+        for lon in range(int(boundary["min_lon"]), int(boundary["max_lon"])+10, 10):
+            lon_direction = "E" if lon >= 0 else "W"
+            lon = abs(lon)
+            lon = f"{lon:03d}"
+
+            tile_url = f"https://storage.googleapis.com/earthenginepartners-hansen/GFC2015/Hansen_GFC2015_treecover2000_{lat}{lat_direction}_{lon}{lon_direction}.tif"
+            tile_urls.append(tile_url)
 
     # Save the tile URLs to a text file
     urls_file = os.path.join(data_folder_path, urls_file)
@@ -152,19 +163,9 @@ def download_tree_cover_density(urls_file = "TCD_urls_global_30m.txt", extent = 
     os.makedirs(tree_cover_density_dir, exist_ok=True)
 
     # Download tiles from the saved URLs
-    total_count = len(tile_urls)
-    for count, url in enumerate(tile_urls):
-        # print_progress()
-        file = download_data(url, tree_cover_density_dir, print_output=True)
-        print(f"Downloaded, {count}/{total_count}: {file}")
+    for url in tqdm(tile_urls, total = len(tile_urls)):
+        download_data(url, tree_cover_density_dir, print_output=True)
 
-    
-    # total_count = len(tile_urls)
-    # fun_times = []
-    # for count, link in enumerate(tile_urls):
-    #     download_args = [link, tree_cover_density_dir]
-    #     result, fun_times = print_progress(download_data, download_args, count, total_count, fun_times)
-    
     return print(f"Downloading task done and saved into {tree_cover_density_dir}")
 
     
