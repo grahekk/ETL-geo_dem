@@ -79,6 +79,27 @@ class ConfigurationParameters():
     log_file_path = os.path.join(parent_directory, 'pipeline.log')
     ESA_dem_files_regex_match = r'_(S|N)(\d+)_00_(W|E)(\d+)'
     USGS_dem_files_regex_match = r'_(s|n)(\d+)(w|e)(\d+)_'
+    
+    europe_bounds = {
+    "min_lat": 35.0,   
+    "max_lat": 71.0,   
+    "min_lon": -24.0,  
+    "max_lon": 45.0    
+    }
+    north_american_bounds = {
+        "min_lat": 14.559032,  # Southernmost point (Santo Tomas, Chiapas, Mexico)
+        "max_lat": 84.057411,  # Northernmost point (Kaktovik, Alaska)
+        "min_lon": -168.101265,  # Westernmost point (Adak, Alaska)
+        "max_lon": -34.633207  # Easternmost point (St. John's, Newfoundland, Canada)
+    }
+
+    global_bounds = {
+    "min_lat": -90.0,   
+    "max_lat": 90.0,   
+    "min_lon": -180.0,  
+    "max_lon": 180.0    
+    }
+
 
 def get_conn_parameters():
     """
