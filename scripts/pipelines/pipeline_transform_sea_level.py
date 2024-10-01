@@ -56,7 +56,7 @@ regex_match = USGS_dem_regex
 data_folder = config["data_folder"]
 
 sys.path.append("/usr/lib/python3/dist-packages")
-from osgeo import gdal, ogr
+# from osgeo import gdal, ogr
 
 # warnings.filterwarnings("ignore", message="Normalized/laundered field name:", category=UserWarning)
 # warnings.filterwarnings("ignore", message="Normalized/laundered field name:", category=UserWarning, module="geopandas")
