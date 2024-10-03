@@ -198,3 +198,6 @@ pyrightconfig.json
 *.jpg
 *.svg
 *.png
+
+# shell scripts
+*.sh
